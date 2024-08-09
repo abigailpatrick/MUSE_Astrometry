@@ -877,9 +877,13 @@ def crossmatch_catalogs(catalog1, catalog2, tolerance_arcsec=1.0):
     """
    
     
-    # Extract RA and Dec
-    ra1, dec1 = catalog1['RA'], catalog1['DEC']
-    ra2, dec2 = catalog2['RA'], catalog2['DEC']
+   # Extract RA and Dec with case-insensitive column names
+    ra1 = catalog1[[col for col in catalog1.dtype.names if col.lower() == 'ra'][0]]
+    dec1 = catalog1[[col for col in catalog1.dtype.names if col.lower() == 'dec'][0]]
+
+    ra2 = catalog2[[col for col in catalog2.dtype.names if col.lower() == 'ra'][0]]
+    dec2 = catalog2[[col for col in catalog2.dtype.names if col.lower() == 'dec'][0]]
+
     
     # Create SkyCoord objects
     coords1 = SkyCoord(ra1, dec1, unit='deg')
