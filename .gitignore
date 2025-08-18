@@ -1,0 +1,3 @@
+*          # ignore everything
+!*.py      # except Python scripts
+!*.slurm   # except SLURM scripts
