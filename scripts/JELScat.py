@@ -80,7 +80,7 @@ def get_halpha_candidates(band, mosaic_fits, wcs, mosaic_data):
     return valid_candidates
 
 # Load MUSE mosaic once
-mosaic_fits = '/home/apatrick/Code/aligned/mosaic_whitelight_nanmedian_all_new_full.fits'
+mosaic_fits = '/cephfs/apatrick/musecosmos/scripts/aligned/mosaic_whitelight_nanmedian_all_new_full.fits'
 with fits.open(mosaic_fits) as hdul:
     mosaic_data = hdul[0].data
     wcs = WCS(hdul[0].header)
@@ -121,7 +121,7 @@ ax.set_ylabel('Y pixel')
 plt.grid(False)
 plt.tight_layout()
 
-save_path = "/home/apatrick/P1/plots/halpha_candidates_combined.png"
+save_path = "/cephfs/apatrick/musecosmos/scripts/aligned/halpha_candidates_combined.png"
 plt.savefig(save_path, dpi=300, bbox_inches='tight')
 print(f"Saved combined plot to {save_path}")
 plt.show()

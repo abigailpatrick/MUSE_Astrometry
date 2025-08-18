@@ -104,6 +104,7 @@ def get_wcs_info(im_muse, wcs_muse):
 
     # Nyquist sampling FWHM
     fwhm_nyquist = 2 * pixscale
+    print (" Ran get_wcs_info ")
 
     return (
         shape_muse,
@@ -313,7 +314,10 @@ def source_catalog(data, wcs_muse, photplam, pixel_scale, compact_only=True, min
     extent = [ra_max, ra_min, dec_min, dec_max] # For correct RA order in imshow
 
     # --- Save catalog ---
+    
     tbl.write(fout, format='fits', overwrite=True)
+
+    print(f"Ran source_catalog. Source catalog saved to {fout}")
 
     return data, tbl, segment_map, segm_deblend, cat, aperture_phot_tbl, extent
 
@@ -355,6 +359,8 @@ def create_cutout(image_data, wcs, width_deg, height_deg, ra_center, dec_center,
         hdu = fits.PrimaryHDU(data=cutout.data, header=cutout.wcs.to_header())
         hdu.writeto(fout, overwrite=True)
 
+    print ("Ran create_cutout")
+
     return cutout.data, cutout.wcs
 
 
@@ -392,6 +398,7 @@ def convolve_image(image_data_hst, fwhm, gamma):
     # Convolve the HST image with the Moffat kernel
     convolved_image = convolve(image_data_hst, kernel_M)
 
+    print("Ran convolve_image")
 
     return convolved_image
 
@@ -546,6 +553,7 @@ def source_catalog_HST(data, wcs_hst, photflam, photplam, radii, npixels=10, fou
 
     extent_hst = [ra_max, ra_min, dec_min, dec_max]  # For imshow in RA/Dec
 
+    print(f"Ran source_catalog_HST. Source catalog saved to {fout}")
     return data, tbl, segment_map, segm_deblend, cat, aperture_phot_tbl, extent_hst
 
 
@@ -612,8 +620,10 @@ def crossmatch_catalogs(catalog1, catalog2, tolerance_arcsec=2.0):
     for name in matched_catalog2.dtype.names:
         combined_catalog[f'cat2_{name}'] = matched_catalog2[name]
 
-
+    
     # Convert the combined structured array back to an Astropy Table
+
+    print ("ran crossmatch_catalogs")
     return Table(combined_catalog)
 
 
@@ -734,6 +744,7 @@ def add_offsets(muse_file,matched_catalog, log_file,pixel_scale=0.2):
     with open(log_file, 'a') as f:
         f.write(log_line)
 
+    print ("ran add_offsets")
 
     return matched_catalog, n_ra_points, n_dec_points
 
@@ -827,6 +838,8 @@ def align_wcs_using_pixel_shift(musefile, matched_catalog, log_file='offsets.log
 
         extent_a = [ra_max, ra_min, dec_min, dec_max]
 
+        print ("ran align_wcs_using_pixel_shift")
+
         return output_path, extent_a
 
 
@@ -851,6 +864,8 @@ def offset_txt(matched_catalog, musefile, output_dir='aligned'):
     with open(output_file, 'a') as f:
         f.write(f"{musefile} {dx:.5f} {dy:.5f} {'a'}\n")          
     print(f"Added offsets for {musefile} to {output_file}")
+
+    print ("ran offset_txt")
 
     return output_file
 

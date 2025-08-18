@@ -16,7 +16,7 @@ cube = 'all'
 method = 'new'
 
 # Automatically list all matching FITS files in the aligned folder
-file_path = '/home/apatrick/Code/aligned/'
+file_path = '/cephfs/apatrick/musecosmos/scripts/aligned'
 cube_list = sorted([
     f for f in os.listdir(file_path)
     if f.endswith('_ZAP_img_aligned.fits') and f.startswith('DATACUBE_FINAL_Autocal')
@@ -66,7 +66,7 @@ stack = np.array(reprojected_images)
 mosaic = np.nanmedian(stack, axis=0)
 
 # Step 5: Save the stacked mosaic as a FITS file
-output_fits = f'/home/apatrick/Code/aligned/mosaic_whitelight_nanmedian_{cube}_{method}_full.fits'
+output_fits = f'/cephfs/apatrick/musecosmos/scripts/aligned/mosaic_whitelight_nanmedian_{cube}_{method}_full.fits'
 hdu = fits.PrimaryHDU(mosaic, header=wcs_out.to_header())
 hdu.writeto(output_fits, overwrite=True)
 print(f"Saved full mosaic to {output_fits}")
@@ -83,7 +83,7 @@ plt.colorbar(label='Flux')
 plt.tight_layout()
 
 # Step 7: Save the plot
-output_png = f'/home/apatrick/Code/aligned/mosaic_whitelight_nanmedian_{cube}_{method}_full.png'
+output_png = f'/cephfs/apatrick/musecosmos/scripts/aligned/mosaic_whitelight_nanmedian_{cube}_{method}_full.png'
 plt.savefig(output_png, dpi=300, bbox_inches='tight')
 plt.show()
 print(f"Saved plot to {output_png}")

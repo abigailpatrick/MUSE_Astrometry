@@ -65,10 +65,10 @@ m_file = sys.argv[1] # Full MUSE fits file
 m_filename = sys.argv[2] # MUSE file name without the path and extension (for output file-naming)
 
 # Define paths 
-MUSE_fits_path = os.path.join('/home/apatrick/MUSE_NEW', m_file) # edit 
+MUSE_fits_path = os.path.join('/cephfs/apatrick/musecosmos/reduced_cubes/white', m_file) # edit 
 hst_file = f'primer_cosmos_acswfc_f814w_30mas_sci.fits.gz'
 HST_fits_path = os.path.join('/home/apatrick/HST', hst_file) # edit 
-os.chdir('/home/apatrick/Code') # Where the main script works from
+os.chdir('/cephfs/apatrick/musecosmos/scripts') # Where the main script works from
 
 
 # Open the MUSE file
