@@ -1,6 +1,8 @@
 
-## The scripts for MUSE COSMOS astrometry.
+The scripts for MUSE COSMOS astrometry.
+
 The slurm script runs astrom.py which imports functions from astromfunc.py
+
 To Use:
 * Ensure astrom.py, slurm, astromfunc.py and the exposures desired are on cuillin.
 * Edit file paths in astrom.py to be to the correct to exposures
