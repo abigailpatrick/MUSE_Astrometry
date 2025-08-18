@@ -1,3 +1,17 @@
+# Ignore everything
+*
+
+# Except these file types
+!*.py
+!*.slurm
+
+# Optionally, include entire folders if needed
+!script/
+!scripts/
+
+# Ignore common OS/temp files
+.DS_Store
+Thumbs.db
 *          # ignore everything
 !*.py      # except Python scripts
 !*.slurm   # except SLURM scripts
