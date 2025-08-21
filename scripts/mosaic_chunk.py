@@ -1,5 +1,9 @@
 """
 run like this: python mosaic_chunk.py --path /cephfs/apatrick/musecosmos/reduced_cubes/full --offsets_txt /cephfs/apatrick/musecosmos/scripts/aligned/offsets.txt --slice 100 --output_file mosaic.fits --plotting
+
+- move all norm.fits to new file and then update input path to take that
+- then run like this : python mosaic_chunk.py --path /cephfs/apatrick/musecosmos/reduced_cubes/norm --offsets_txt /cephfs/apatrick/musecosmos/scripts/aligned/offsets.txt --slice 100 --output_file mosaic.fits --plotting
+
 """
 from concurrent.futures import ProcessPoolExecutor
 import os
@@ -12,11 +16,12 @@ from reproject import reproject_adaptive
 import matplotlib.pyplot as plt
 import numpy as np      
 from astropy.visualization import simple_norm            
-import argparse
-import os
-from astropy.io import fits
-from astropy.wcs import WCS
+from functools import partial
+import sys
 from dataclasses import dataclass
+import csv
+from astropy.visualization import simple_norm
+import pandas
 
 def parse_args():
     parser = argparse.ArgumentParser(description="MUSE slice mosaicking pipeline")
@@ -65,11 +70,8 @@ def paths_ids_offsets(offsets_txt):
     return cubes
 
 
-from astropy.io import fits
-from astropy.wcs import WCS
-import os
+def i_slice(cubes, slice_number):
 
-def i_slice(cubes, cube_dir, slice_index):
     """
     Extract a 2D slice from each cube in the list.
 
@@ -77,9 +79,7 @@ def i_slice(cubes, cube_dir, slice_index):
     ----------
     cubes : list of CubeEntry
         Metadata entries (file_id, offsets, flag).
-    cube_dir : str
-        Path to the directory where cube FITS files are stored.
-    slice_index : int
+    slice_number : int
         Index of the spectral slice to extract.
 
     Returns
@@ -90,124 +90,60 @@ def i_slice(cubes, cube_dir, slice_index):
     i_slice = {}
 
     for cube in cubes:
-        cube_path = os.path.join(cube_dir, f"DATACUBE_FINAL_{cube.file_id}_ZAP.fits")
-        with fits.open(cube_path) as hdul:
-            cube_data = hdul[1].data
-            cube_wcs = WCS(hdul[1].header)
-            
-
-            # Extract spectral slice (assume shape = (nwave, ny, nx))
-            slice_data = cube_data[slice_index, :, :]
-
-            i_slice[cube.file_id] = {"data": slice_data, "wcs": cube_wcs}
-
+        with fits.open(cube.cube_path) as hdul:
+            data = hdul[1].data[slice_number]
+            wcs = WCS(hdul[1].header).celestial
+        i_slice[cube.file_id] = {'data': data, 'wcs': wcs}
     return i_slice
 
 
-from astropy.io import fits
 
-from astropy.io import fits
-from astropy.wcs import WCS
-import numpy as np
-import pandas as pd
-from astropy.io import fits
-from astropy.wcs import WCS
-import numpy as np
-import os
 
-def check_cube_wavelength_axis(cube_path, slice_number, file_id, log_file="cube_wavelength_log.csv"):
+
+def slice_wavelength_check(cube_path, slice_number, expected_start=4749.9, expected_step=1.25):
     """
-    Checks the wavelength axis of a cube and logs the information in a CSV file.
-    
+    Checks if the wavelength of a given slice is within 1 Å of the expected value.
+
     Parameters
     ----------
     cube_path : str
         Path to the cube FITS file.
     slice_number : int
-        Index of the slice to check wavelength.
-    file_id : str
-        Identifier for this cube (e.g., filename or short ID).
-    log_file : str
-        CSV file path to save or append the info.
-        
+        Index of the slice to check.
+    expected_start : float
+        Expected starting wavelength of slice 0 (Å). Default is 4749.9.
+    expected_step : float
+        Expected wavelength step per slice (Å). Default is 1.25.
+
     Returns
     -------
-    info : dict
-        Dictionary containing cube wavelength information.
+    slice_wavelength : float
+        Calculated wavelength of the given slice.
+    within_tolerance : bool
+        True if slice wavelength is within 1 Å of expected value.
     """
-    # Expected values
-    expected_n_slices = 3722
-    expected_step = 1.25      # Angstrom
-    expected_start = 4700.4   # Angstrom
-    expected_end = 9351.6     # Angstrom
-
-    # Open the cube
+    
     with fits.open(cube_path) as hdul:
         header = hdul[1].header
         naxis3 = header['NAXIS3']
-
+        
         if "CDELT3" in header and "CRVAL3" in header:
             crval3 = header['CRVAL3']
             cdelt3 = header['CDELT3']
-            start_wavelength = crval3
-            end_wavelength = crval3 + cdelt3 * (naxis3 - 1)
             slice_wavelength = crval3 + cdelt3 * slice_number
         else:
             w = WCS(header)
             pix = np.arange(naxis3)
             wavelengths = w.all_pix2world(np.zeros(naxis3), np.zeros(naxis3), pix, 0)[2]
-            cdelt3 = np.mean(np.diff(wavelengths))*(10**10)
-            start_wavelength = wavelengths[0]*(10**10)
-            end_wavelength = wavelengths[-1]*(10**10)
-            slice_wavelength = wavelengths[slice_number]*(10**10)
+            slice_wavelength = wavelengths[slice_number] * 1e10  # convert to Å
 
     expected_slice_wavelength = expected_start + expected_step * slice_number
-
-    """ 
-    # Check against expected
-    if abs(naxis3 - expected_n_slices) > 20:
-        raise ValueError(f"Number of spectral slices mismatch: got {naxis3}, expected ~{expected_n_slices}")
-    if abs(cdelt3 - expected_step) > 5:
-        raise ValueError(f"Wavelength step mismatch: got {cdelt3}, expected ~{expected_step}")
-    if abs(start_wavelength - expected_start) > 5:
-        raise ValueError(f"Start wavelength mismatch: got {start_wavelength}, expected ~{expected_start}")
-    if abs(end_wavelength - expected_end) > 5:
-        raise ValueError(f"End wavelength mismatch: got {end_wavelength}, expected ~{expected_end}")
-    if abs(slice_wavelength - expected_slice_wavelength) > 5:
-        raise ValueError(f"Slice {slice_number} wavelength mismatch: got {slice_wavelength}, expected ~{expected_slice_wavelength}")
-
-    """
-    # Create info dictionary
-    info = {
-        'file_id': file_id,
-        'cube_path': cube_path,
-        'n_slices': naxis3,
-        'start_wave': start_wavelength,
-        'end_wave': end_wavelength,
-        'step': cdelt3,
-        'slice_wave': slice_wavelength,
-        }
-
-    # Load or create CSV
-    if os.path.exists(log_file):
-        df = pd.read_csv(log_file)
-        # If file_id exists, overwrite
-        if file_id in df['file_id'].values:
-            # Overwrite the existing row
-            df.loc[df['file_id'] == file_id, :] = pd.DataFrame([info], columns=df.columns)
-        else:
-            df = pd.concat([df, pd.DataFrame([info])], ignore_index=True)
-
-    else:
-        df = pd.DataFrame([info])
-
-    df.to_csv(log_file, index=False)
-    print(f"Cube wavelength axis check passed. Info logged in {log_file}")
-
+    within_tolerance = abs(slice_wavelength - expected_slice_wavelength) <= 1.0
+    if not within_tolerance:
+        raise ValueError(f"WARNING: {cube_path} slice {slice_number} wavelength {slice_wavelength} Å "
+              f"not within tolerance of expected {expected_slice_wavelength} Å")
+    
     return slice_wavelength
-
-
-
 
 
 def align_i_slices(i_slice_data, i_slice_wcs, offsets):
@@ -289,11 +225,6 @@ def common_wcs_area(aligned_slices):
     return wcs_out, shape_out
 
 
-from reproject import reproject_interp, reproject_adaptive
-from concurrent.futures import ProcessPoolExecutor
-from concurrent.futures import ProcessPoolExecutor
-from functools import partial
-from reproject import reproject_interp, reproject_adaptive
 
 # Top-level function (not nested)
 def _reproject_single(slice_dict, wcs_out, shape_out, reproject_quick):
@@ -339,7 +270,6 @@ def reproject_aligned_slices(aligned_slices, wcs_out, shape_out, reproject_quick
     return reprojected_slices
 
 
-import numpy as np
 
 def mosaic_reprojected_slices(reprojected_slices):
     """
@@ -372,7 +302,7 @@ def mosaic_reprojected_slices(reprojected_slices):
     return mosaic_data, mosaic_wcs
 
 
-from astropy.io import fits
+
 
 def save_mosaic(mosaic, mosaic_wcs, output_file, file_ids, offsets, a_m):
     """
@@ -412,12 +342,6 @@ def save_mosaic(mosaic, mosaic_wcs, output_file, file_ids, offsets, a_m):
     print(f"Saved mosaic to {output_file}")
 
 
-import matplotlib.pyplot as plt
-from astropy.visualization import simple_norm
-
-import os
-from astropy.visualization import simple_norm
-import matplotlib.pyplot as plt
 
 def plot_mosaic(mosaic, slice_wavelength, output_path=None):
     """
@@ -466,7 +390,6 @@ def plot_mosaic(mosaic, slice_wavelength, output_path=None):
     return output_png
 
 
-
 def main():
     # Parse command-line arguments
     args = parse_args()
@@ -474,13 +397,16 @@ def main():
     # Extract cube entries from offsets file
     cubes = paths_ids_offsets(args.offsets_txt)
 
-    # Extract 2D slices from cubes
-    slices = i_slice(cubes, args.path, args.slice)
-
-    # Check wavelength axis for each cube slice
+    # Loop over cubes: set path to _norm cubes and check slice wavelength
     for cube in cubes:
-        cube_path = os.path.join(args.path, f"DATACUBE_FINAL_{cube.file_id}_ZAP.fits")
-        check_cube_wavelength_axis(cube_path, args.slice, cube.file_id)
+        cube.cube_path = os.path.join(args.path, f"DATACUBE_FINAL_{cube.file_id}_ZAP_norm.fits") # Need to used the cubes with the realignwaves.py applied
+
+        # Check wavelength axis for the selected slice
+        slice_wavelength = slice_wavelength_check(cube.cube_path, args.slice)
+        print(f"[{cube.file_id}] Slice {args.slice} wavelength = {slice_wavelength:.2f} Å")
+
+    # Extract 2D slices from _norm cubes
+    slices = i_slice(cubes, args.slice)   # assumes each cube has .cube_path
 
     # Align slices using pixel offsets
     i_slice_data = [slices[cube.file_id]['data'] for cube in cubes]
@@ -499,15 +425,15 @@ def main():
 
     # Prepare lists for FITS header
     file_ids = [cube.file_id for cube in cubes]
-    a_m = [cube.flag for cube in cubes]  # assuming cubes have 'a_m' attribute
+    a_m = [cube.flag for cube in cubes]  # assuming cubes have 'flag' attribute
 
     # Save the mosaic to FITS
     save_mosaic(mosaic_data, mosaic_wcs, args.output_file, file_ids, offsets, a_m)
 
     # Plot the mosaic if --plotting is True
     if getattr(args, 'plotting', False):
-        slice_wavelength = args.slice  # use the slice value from command line
-        plot_mosaic(mosaic_data, slice_wavelength)
+        plot_mosaic(mosaic_data, args.slice)
+
 
 if __name__ == "__main__":
     main()
