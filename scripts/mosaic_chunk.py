@@ -1,9 +1,12 @@
 """
 run like this: python mosaic_chunk.py --path /cephfs/apatrick/musecosmos/reduced_cubes/full --offsets_txt /cephfs/apatrick/musecosmos/scripts/aligned/offsets.txt --slice 100 --output_file mosaic.fits --plotting
 
+do this before running from P1 : cp /cephfs/apatrick/musecosmos/scripts/mosaic_chunk.py /home/apatrick/P1
 - move all norm.fits to new file and then update input path to take that
 - then run like this : python mosaic_chunk.py --path /cephfs/apatrick/musecosmos/reduced_cubes/norm --offsets_txt /cephfs/apatrick/musecosmos/scripts/aligned/offsets.txt --slice 100 --output_file mosaic.fits --plotting
 
+
+- copy sbatch cp /cephfs/apatrick/musecosmos/scripts/slurm/run_mosaicslices.slurm /home/apatrick/P1/slurm
 """
 from concurrent.futures import ProcessPoolExecutor
 import os
@@ -51,7 +54,7 @@ class CubeEntry:
     flag: str          # 'a' or 'm'
 
 
-def paths_ids_offsets(offsets_txt):
+def paths_ids_offsets(offsets_txt, cubes_dir):
     cubes = []
     with open(offsets_txt, "r") as f:
         for line in f:
@@ -62,12 +65,24 @@ def paths_ids_offsets(offsets_txt):
                 y_offset = float(parts[2])
                 flag = parts[3]
 
-                # Extract file_id from the image filename
+                # Extract file_id from the original filename
                 filename = os.path.basename(image_path)
                 file_id = filename.replace("DATACUBE_FINAL_", "").replace("_ZAP_img.fits", "")
 
-                cubes.append(CubeEntry(file_id, x_offset, y_offset, flag))
+                # Build path to the _norm version
+                norm_filename = f"DATACUBE_FINAL_{file_id}_ZAP_norm.fits"
+                cube_path = os.path.join(cubes_dir, norm_filename)
+
+                if os.path.exists(cube_path):
+                    cube_entry = CubeEntry(file_id, x_offset, y_offset, flag)
+                    cube_entry.cube_path = cube_path
+                    cubes.append(cube_entry)
+                else:
+                    print(f"Skipping {norm_filename}, not found in {cubes_dir}")
+
     return cubes
+
+
 
 
 def i_slice(cubes, slice_number):
@@ -91,7 +106,7 @@ def i_slice(cubes, slice_number):
 
     for cube in cubes:
         with fits.open(cube.cube_path) as hdul:
-            data = hdul[1].data[slice_number]
+            data = hdul[1].data[slice_number].astype(np.float32)
             wcs = WCS(hdul[1].header).celestial
         i_slice[cube.file_id] = {'data': data, 'wcs': wcs}
     return i_slice
@@ -394,8 +409,15 @@ def main():
     # Parse command-line arguments
     args = parse_args()
 
-    # Extract cube entries from offsets file
-    cubes = paths_ids_offsets(args.offsets_txt)
+    # cubes_dir is the folder with _norm files
+    cubes_dir = args.path  
+
+    # Extract cube entries from offsets file, only keeping ones that exist in cubes_dir
+    cubes = paths_ids_offsets(args.offsets_txt, cubes_dir)
+
+    if len(cubes) == 0:
+        raise RuntimeError(f"No matching _norm cubes found in {cubes_dir}. Check your paths.")
+
 
     # Loop over cubes: set path to _norm cubes and check slice wavelength
     for cube in cubes:
