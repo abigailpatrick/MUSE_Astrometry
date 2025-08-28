@@ -1,5 +1,5 @@
 """
-run like this: python mosaic_chunk.py --path /cephfs/apatrick/musecosmos/reduced_cubes/full --offsets_txt /cephfs/apatrick/musecosmos/scripts/aligned/offsets.txt --slice 100 --output_file mosaic.fits --plotting
+run like this: python mosaic_chunk.py --path /cephfs/apatrick/musecosmos/reduced_cubes/norm --offsets_txt /cephfs/apatrick/musecosmos/scripts/aligned/offsets.txt --slice 100 --output_file mosaic.fits --plotting
 
 do this before running from P1 : cp /cephfs/apatrick/musecosmos/scripts/mosaic_chunk.py /home/apatrick/P1
 - move all norm.fits to new file and then update input path to take that
@@ -25,6 +25,7 @@ from dataclasses import dataclass
 import csv
 from astropy.visualization import simple_norm
 import pandas
+import shutil
 
 def parse_args():
     parser = argparse.ArgumentParser(description="MUSE slice mosaicking pipeline")
@@ -39,6 +40,7 @@ def parse_args():
                         help='Output FITS file path for the mosaic')
     parser.add_argument('--plotting', action='store_true',
                         help='Enable plotting of the mosaic')
+    parser.add_argument('--tmp_dir', type=str, default='/cephfs/apatrick/musecosmos/scripts/aligned/tmp_slice', help='Optional temp dir for slices')
 
     args = parser.parse_args()
     return args
@@ -55,7 +57,7 @@ class CubeEntry:
 
 
 def paths_ids_offsets(offsets_txt, cubes_dir):
-    cubes = []
+    cubes = {}
     with open(offsets_txt, "r") as f:
         for line in f:
             if line.strip():
@@ -65,21 +67,19 @@ def paths_ids_offsets(offsets_txt, cubes_dir):
                 y_offset = float(parts[2])
                 flag = parts[3]
 
-                # Extract file_id from the original filename
                 filename = os.path.basename(image_path)
                 file_id = filename.replace("DATACUBE_FINAL_", "").replace("_ZAP_img.fits", "")
-
-                # Build path to the _norm version
                 norm_filename = f"DATACUBE_FINAL_{file_id}_ZAP_norm.fits"
                 cube_path = os.path.join(cubes_dir, norm_filename)
 
-                if os.path.exists(cube_path):
+                if os.path.exists(cube_path) and file_id not in cubes:
                     cube_entry = CubeEntry(file_id, x_offset, y_offset, flag)
                     cube_entry.cube_path = cube_path
-                    cubes.append(cube_entry)
-                else:
+                    cubes[file_id] = cube_entry
+                elif not os.path.exists(cube_path):
                     print(f"Skipping {norm_filename}, not found in {cubes_dir}")
 
+    cubes = list(cubes.values())
     return cubes
 
 
@@ -241,61 +241,59 @@ def common_wcs_area(aligned_slices):
 
 
 
-# Top-level function (not nested)
-def _reproject_single(slice_dict, wcs_out, shape_out, reproject_quick):
+def reproject_and_save_single(i, slice_dict, wcs_out, shape_out, output_dir, reproject_quick=False):
+    """
+    Reprojects a single aligned slice onto the common WCS grid and saves to disk.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
     data, wcs = slice_dict['data'], slice_dict['wcs'].celestial
+
     if reproject_quick:
         array, _ = reproject_interp((data, wcs), output_projection=wcs_out, shape_out=shape_out)
     else:
         array, _ = reproject_adaptive((data, wcs), output_projection=wcs_out, shape_out=shape_out, conserve_flux=True)
-    return {'data': array, 'wcs': wcs_out}
 
-def reproject_aligned_slices(aligned_slices, wcs_out, shape_out, reproject_quick=False):
+    fname = os.path.join(output_dir, f"reproj_slice_{i:03d}_pid{os.getpid()}.fits")
+    fits.writeto(fname, array, overwrite=True)
+
+    return fname
+
+# Top-level wrapper for executor.map
+def _map_reproject_and_save(args):
+    return reproject_and_save_single(*args)
+
+# Main reproject + save function
+def reproject_and_save_slices(aligned_slices, wcs_out, shape_out, output_dir, reproject_quick=False):
     """
-    Reprojects all aligned slices onto a common WCS grid.
-
-    Inputs
-    ------
-    aligned_slices : list of dict
-        Each dict should have keys:
-            'data' : 2D ndarray of the slice
-            'wcs'  : WCS object of the aligned slice
-    wcs_out : WCS
-        WCS object for the common area (output grid)
-    shape_out : tuple
-        Shape of the common area (ny, nx)
-    reproject_quick : bool, optional
-        If True, use fast interpolation (reproject_interp).
-        If False, use flux-conserving reproject_adaptive (slower).
-
-    Outputs
-    -------
-    reprojected_slices : list of dict
-        Each dict has:
-            'data' : 2D ndarray reprojected onto common WCS
-            'wcs'  : common WCS (wcs_out)
+    Reprojects all aligned slices onto a common WCS grid, writes each to disk,
+    and returns a list of file paths.
     """
-    # Use partial to pass extra arguments to top-level function
-    reproject_func = partial(_reproject_single, wcs_out=wcs_out, shape_out=shape_out, reproject_quick=reproject_quick)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Build argument tuples for each slice
+    args_list = [
+        (i, slice_dict, wcs_out, shape_out, output_dir, reproject_quick)
+        for i, slice_dict in enumerate(aligned_slices)
+    ]
 
     # Reproject in parallel
-    with ProcessPoolExecutor() as executor:
-        reprojected_slices = list(executor.map(reproject_func, aligned_slices))
+    from concurrent.futures import ProcessPoolExecutor
+    with ProcessPoolExecutor(max_workers=8) as executor:
+        file_list = list(executor.map(_map_reproject_and_save, args_list))
 
-    return reprojected_slices
+    return file_list
 
 
 
-def mosaic_reprojected_slices(reprojected_slices):
+def mosaic_from_files(file_list):
     """
-    Creates a mosaic from reprojected slices.
+    Median-stack reprojected slices stored on disk using memmap.
 
     Inputs
     ------
-    reprojected_slices : list of dict
-        Each dict should have keys:
-            'data' : 2D ndarray of the reprojected slice
-            'wcs'  : WCS object of the reprojected slice (all the same)
+    file_list : list of str
+        List of file paths to the reprojected slice FITS files.
 
     Outputs
     -------
@@ -304,17 +302,17 @@ def mosaic_reprojected_slices(reprojected_slices):
     mosaic_wcs : WCS
         The WCS object for the final mosaic (same as slices).
     """
+    arrays = [fits.open(f, memmap=True)[0].data for f in file_list]
 
-    # Stack all data arrays
-    stack = np.array([s['data'] for s in reprojected_slices])
+    # Stack lazily into a single 3D array (memmap references)
+    stack = np.stack(arrays, axis=0)
 
-    # Combine using nanmedian
+    # Compute nanmedian along slices axis
     mosaic_data = np.nanmedian(stack, axis=0)
 
-    # WCS is the same for all reprojected slices
-    mosaic_wcs = reprojected_slices[0]['wcs']
-
-    return mosaic_data, mosaic_wcs
+    # Use WCS from first file
+    wcs = WCS(fits.getheader(file_list[0]))
+    return mosaic_data, wcs
 
 
 
@@ -378,14 +376,14 @@ def plot_mosaic(mosaic, slice_wavelength, output_path=None):
         Path to the saved PNG file.
     """
     if output_path is None:
-        output_path = "/cephfs/apatrick/musecosmos/reduced_cubes/practice"
+        output_path = "/cephfs/apatrick/musecosmos/reduced_cubes/slices"
 
-    method = 'combined'
+    
     norm = simple_norm(mosaic, 'sqrt', percent=99.5)
 
     plt.figure(figsize=(10, 8))
     plt.imshow(mosaic, origin='lower', cmap='viridis', norm=norm)
-    plt.title(f"Full Mosaic {slice_wavelength} ({method}) - nanmedian stack")
+    plt.title(f"Full Mosaic of slice {round(slice_wavelength, 1)} Å - nanmedian stack")
     plt.xlabel("Pixel X")
     plt.ylabel("Pixel Y")
     plt.colorbar(label='Flux')
@@ -396,7 +394,7 @@ def plot_mosaic(mosaic, slice_wavelength, output_path=None):
 
     # Save plot
     output_png = os.path.join(
-        output_path, f"mosaic_nanmedian_slice_{slice_wavelength}_{method}_full.png"
+        output_path, f"mosaic_nanmedian_slice_{round(slice_wavelength, 1)}_full.png"
     )
     plt.savefig(output_png, dpi=300, bbox_inches='tight')
     plt.show()
@@ -414,21 +412,23 @@ def main():
 
     # Extract cube entries from offsets file, only keeping ones that exist in cubes_dir
     cubes = paths_ids_offsets(args.offsets_txt, cubes_dir)
+    unique_cubes = {}
+    for c in cubes:
+        if c.file_id not in unique_cubes:
+            unique_cubes[c.file_id] = c
+    cubes = list(unique_cubes.values())
 
     if len(cubes) == 0:
         raise RuntimeError(f"No matching _norm cubes found in {cubes_dir}. Check your paths.")
 
-
     # Loop over cubes: set path to _norm cubes and check slice wavelength
     for cube in cubes:
-        cube.cube_path = os.path.join(args.path, f"DATACUBE_FINAL_{cube.file_id}_ZAP_norm.fits") # Need to used the cubes with the realignwaves.py applied
-
-        # Check wavelength axis for the selected slice
+        cube.cube_path = os.path.join(cubes_dir, f"DATACUBE_FINAL_{cube.file_id}_ZAP_norm.fits")
         slice_wavelength = slice_wavelength_check(cube.cube_path, args.slice)
         print(f"[{cube.file_id}] Slice {args.slice} wavelength = {slice_wavelength:.2f} Å")
 
     # Extract 2D slices from _norm cubes
-    slices = i_slice(cubes, args.slice)   # assumes each cube has .cube_path
+    slices = i_slice(cubes, args.slice)  # assumes each cube has .cube_path
 
     # Align slices using pixel offsets
     i_slice_data = [slices[cube.file_id]['data'] for cube in cubes]
@@ -439,11 +439,15 @@ def main():
     # Find common WCS area
     wcs_out, shape_out = common_wcs_area(aligned_slices)
 
-    # Reproject all aligned slices onto the common WCS grid
-    reprojected_slices = reproject_aligned_slices(aligned_slices, wcs_out, shape_out)
+    # Prepare tmp directory
+    tmp_dir = args.tmp_dir
+    os.makedirs(tmp_dir, exist_ok=True)  # ensure it exists
 
-    # Create a mosaic from reprojected slices
-    mosaic_data, mosaic_wcs = mosaic_reprojected_slices(reprojected_slices)
+    # Reproject and save each aligned slice to disk (parallelized)
+    file_list = reproject_and_save_slices(aligned_slices, wcs_out, shape_out, tmp_dir)
+
+    # Median stack from disk using memmap
+    mosaic_data, mosaic_wcs = mosaic_from_files(file_list)
 
     # Prepare lists for FITS header
     file_ids = [cube.file_id for cube in cubes]
@@ -454,7 +458,14 @@ def main():
 
     # Plot the mosaic if --plotting is True
     if getattr(args, 'plotting', False):
-        plot_mosaic(mosaic_data, args.slice)
+        plot_mosaic(mosaic_data, slice_wavelength)
+
+    # Clean up temporary directory
+    if os.path.exists(tmp_dir):
+        shutil.rmtree(tmp_dir)
+        print(f"Temporary directory {tmp_dir} removed.")
+
+    print(f"Finished slice {args.slice} processing.")
 
 
 if __name__ == "__main__":
