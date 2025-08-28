@@ -338,7 +338,7 @@ def save_mosaic(mosaic, mosaic_wcs, output_file, file_ids, offsets, a_m):
 
     Returns
     -------
-    None
+    None 
     """
 
     # Create primary HDU with data and WCS header
