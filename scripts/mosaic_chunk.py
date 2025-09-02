@@ -26,6 +26,11 @@ import csv
 from astropy.visualization import simple_norm
 import pandas
 import shutil
+from mpdaf.obj import Cube
+import time
+
+start_time = time.time()  # record start
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="MUSE slice mosaicking pipeline")
@@ -106,10 +111,21 @@ def i_slice(cubes, slice_number):
 
     for cube in cubes:
         with fits.open(cube.cube_path) as hdul:
-            data = hdul[1].data[slice_number].astype(np.float32)
-            wcs = WCS(hdul[1].header).celestial
-        i_slice[cube.file_id] = {'data': data, 'wcs': wcs}
+            data = hdul[1].data[slice_number]
+            header = hdul[1].header.copy()
+        
+            # 2D WCS for mosaicking / alignment (celestial only)
+            wcs = WCS(header).celestial
+
+
+            i_slice[cube.file_id] = {
+                'data': data,
+                'wcs': wcs,
+                'wcs_e': header  # full FITS header stored as wcs_e
+            }
+
     return i_slice
+
 
 
 
@@ -223,11 +239,14 @@ def common_wcs_area(aligned_slices):
         The shape of the common area (ny, nx).
     """
 
+    
     # Extract (data, WCS) tuples from aligned slices
     slice_list = [(s['data'], s['wcs'].celestial) for s in aligned_slices]
+    
 
     # Compute optimal common celestial WCS and shape
     wcs_out, shape_out = find_optimal_celestial_wcs(slice_list)
+    
 
     # Optional: add padding (50 pixels each side → 100 total)
     pad_y, pad_x = 100, 100
@@ -248,14 +267,17 @@ def reproject_and_save_single(i, slice_dict, wcs_out, shape_out, output_dir, rep
     os.makedirs(output_dir, exist_ok=True)
 
     data, wcs = slice_dict['data'], slice_dict['wcs'].celestial
+    
 
     if reproject_quick:
         array, _ = reproject_interp((data, wcs), output_projection=wcs_out, shape_out=shape_out)
     else:
         array, _ = reproject_adaptive((data, wcs), output_projection=wcs_out, shape_out=shape_out, conserve_flux=True)
 
+    header = wcs_out.to_header()
+
     fname = os.path.join(output_dir, f"reproj_slice_{i:03d}_pid{os.getpid()}.fits")
-    fits.writeto(fname, array, overwrite=True)
+    fits.writeto(fname, array, header=header, overwrite=True)
 
     return fname
 
@@ -304,20 +326,20 @@ def mosaic_from_files(file_list):
     """
     arrays = [fits.open(f, memmap=True)[0].data for f in file_list]
 
-    # Stack lazily into a single 3D array (memmap references)
+    # Stack into a single 3D array (memmap references)
     stack = np.stack(arrays, axis=0)
 
     # Compute nanmedian along slices axis
     mosaic_data = np.nanmedian(stack, axis=0)
 
+
     # Use WCS from first file
     wcs = WCS(fits.getheader(file_list[0]))
+    
     return mosaic_data, wcs
 
 
-
-
-def save_mosaic(mosaic, mosaic_wcs, output_file, file_ids, offsets, a_m):
+def save_mosaic(mosaic, mosaic_wcs, output_file, file_ids, offsets, a_m, wcs_e):
     """
     Save the mosaic to a FITS file and add slice info to the header.
 
@@ -335,14 +357,36 @@ def save_mosaic(mosaic, mosaic_wcs, output_file, file_ids, offsets, a_m):
         List of (x, y) offsets applied to each slice.
     a_m : list of str
         List indicating 'a' or 'm' type for each slice.
+    wcs_e : WCS
+        Extra WCS object containing additional header keywords.
 
     Returns
     -------
     None 
     """
 
-    # Create primary HDU with data and WCS header
-    hdu = fits.PrimaryHDU(data=mosaic, header=mosaic_wcs.to_header())
+    # Convert headers
+    mosaic_header = mosaic_wcs.to_header()
+
+    for card in wcs_e.cards:
+        key = card.keyword
+        value = card.value
+
+        # Skip spectral axis keys
+        if key.endswith('3'):
+            continue
+
+        # Handle COMMENT and HISTORY specially
+        if key == 'COMMENT' and value is not None:
+            mosaic_header.add_comment(str(value))
+        elif key == 'HISTORY' and value is not None:
+            mosaic_header.add_history(str(value))
+        elif key not in mosaic_header:
+            mosaic_header[key] = value
+
+
+    # Create primary HDU with data and merged header
+    hdu = fits.PrimaryHDU(data=mosaic, header=mosaic_header)
 
     # Add slice info to header
     for i, (fid, off, typ) in enumerate(zip(file_ids, offsets, a_m), 1):
@@ -353,6 +397,7 @@ def save_mosaic(mosaic, mosaic_wcs, output_file, file_ids, offsets, a_m):
     # Save to FITS
     hdu.writeto(output_file, overwrite=True)
     print(f"Saved mosaic to {output_file}")
+
 
 
 
@@ -417,24 +462,37 @@ def main():
         if c.file_id not in unique_cubes:
             unique_cubes[c.file_id] = c
     cubes = list(unique_cubes.values())
+    print(f"Found {len(cubes)} unique cubes with offsets.")
 
     if len(cubes) == 0:
         raise RuntimeError(f"No matching _norm cubes found in {cubes_dir}. Check your paths.")
 
+    print(f"Checking wavelength alignment of slices")
     # Loop over cubes: set path to _norm cubes and check slice wavelength
     for cube in cubes:
         cube.cube_path = os.path.join(cubes_dir, f"DATACUBE_FINAL_{cube.file_id}_ZAP_norm.fits")
         slice_wavelength = slice_wavelength_check(cube.cube_path, args.slice)
-        print(f"[{cube.file_id}] Slice {args.slice} wavelength = {slice_wavelength:.2f} Å")
+        csv_filename = f"{int(args.slice)}_wave.csv"
+        file_exists = os.path.isfile(csv_filename)
+        with open(csv_filename, 'a', newline='') as csvfile:
+            if not file_exists:
+                csvfile.write("file_id,slice,slice_wavelength\n")
+            csvfile.write(f"{cube.file_id},{args.slice},{slice_wavelength:.4f}\n")
+    print(f"Completed writing {csv_filename}")
 
     # Extract 2D slices from _norm cubes
     slices = i_slice(cubes, args.slice)  # assumes each cube has .cube_path
+    print(f"Extracted {len(slices)} slices.")
+
+    wcs_e = slices[cubes[0].file_id]['wcs_e']  # Full WCS from first cube
+    print (wcs_e)
 
     # Align slices using pixel offsets
     i_slice_data = [slices[cube.file_id]['data'] for cube in cubes]
     i_slice_wcs = [slices[cube.file_id]['wcs'] for cube in cubes]
     offsets = [(cube.x_offset, cube.y_offset) for cube in cubes]
     aligned_slices = align_i_slices(i_slice_data, i_slice_wcs, offsets)
+    print(f"Applied pixel offsets to slices.")
 
     # Find common WCS area
     wcs_out, shape_out = common_wcs_area(aligned_slices)
@@ -443,21 +501,25 @@ def main():
     tmp_dir = args.tmp_dir
     os.makedirs(tmp_dir, exist_ok=True)  # ensure it exists
 
+    print(f"Reprojecting and saving aligned slices")
     # Reproject and save each aligned slice to disk (parallelized)
     file_list = reproject_and_save_slices(aligned_slices, wcs_out, shape_out, tmp_dir)
 
     # Median stack from disk using memmap
     mosaic_data, mosaic_wcs = mosaic_from_files(file_list)
+    print(f"Created mosaic from {len(file_list)} reprojected slices.")
 
     # Prepare lists for FITS header
     file_ids = [cube.file_id for cube in cubes]
     a_m = [cube.flag for cube in cubes]  # assuming cubes have 'flag' attribute
 
     # Save the mosaic to FITS
-    save_mosaic(mosaic_data, mosaic_wcs, args.output_file, file_ids, offsets, a_m)
+    save_mosaic(mosaic_data, mosaic_wcs, args.output_file, file_ids, offsets, a_m, wcs_e)
+    print(f"Saved mosaic to {args.output_file}")
 
     # Plot the mosaic if --plotting is True
     if getattr(args, 'plotting', False):
+        print(f"Plotting mosaic for slice {round(slice_wavelength, 1)} Å")
         plot_mosaic(mosaic_data, slice_wavelength)
 
     # Clean up temporary directory
@@ -466,6 +528,15 @@ def main():
         print(f"Temporary directory {tmp_dir} removed.")
 
     print(f"Finished slice {args.slice} processing.")
+
+    end_time = time.time()
+    elapsed = end_time - start_time
+
+    hours = int(elapsed // 3600)
+    minutes = int((elapsed % 3600) // 60)
+    seconds = int(elapsed % 60)
+
+    print(f"\nMosaic completed in {hours}h {minutes}m {seconds}s")
 
 
 if __name__ == "__main__":
