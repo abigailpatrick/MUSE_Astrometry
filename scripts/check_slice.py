@@ -1,7 +1,7 @@
 from astropy.io import fits
 #"""
 # Path to your file
-cube_file = "/cephfs/apatrick/musecosmos/scripts/mosaic.fits"
+cube_file = "/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/full/mosaic_slice_1.fits"
 
 with fits.open(cube_file) as hdul:
     print("=== FITS file structure ===")

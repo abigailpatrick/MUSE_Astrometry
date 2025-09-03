@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=mosaic_array
-#SBATCH --array=0-179                # 180 array jobs (each one handles a different slice)
+#SBATCH --array=0-499                # 500 array jobs (each one handles a different slice)
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8           # One Python process per slice, with 8 CPU cores
 #SBATCH --mem=80G
-#SBATCH --time=04:00:00
+#SBATCH --time=00:20:00
 #SBATCH --output=logs/mosaic_%A_%a.out
 #SBATCH --error=logs/mosaic_%A_%a.err
 
@@ -15,11 +15,11 @@ conda activate env39
 # Paths
 CUBES_DIR="/cephfs/apatrick/musecosmos/reduced_cubes/norm"
 OFFSETS_TXT="/cephfs/apatrick/musecosmos/scripts/aligned/offsets.txt"
-OUTPUT_DIR="/cephfs/apatrick/musecosmos/scripts/aligned/mosaics"
+OUTPUT_DIR="/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/full"
 TMP_BASE="/cephfs/apatrick/musecosmos/scripts/aligned/tmp_slices"
 
 # Map array index to slice number
-START_SLICE=3035
+START_SLICE=500 #3035 for 180 slices to do lya region
 SLICE_NUM=$((START_SLICE + SLURM_ARRAY_TASK_ID))
 
 echo "Job $SLURM_ARRAY_TASK_ID processing slice $SLICE_NUM"
@@ -34,6 +34,7 @@ python /home/apatrick/P1/mosaic_chunk.py \
     --offsets_txt "$OFFSETS_TXT" \
     --slice $SLICE_NUM \
     --output_file "$OUTPUT_DIR/mosaic_slice_${SLICE_NUM}.fits" \
+    --mean_stack_file "$OUTPUT_DIR/mean_stack_${SLICE_NUM}.fits" \
     --plotting \
     --tmp_dir "$SLICE_TMP_DIR"
 

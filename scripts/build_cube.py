@@ -3,7 +3,7 @@
 """
 cp /cephfs/apatrick/musecosmos/scripts/build_cube.py /home/apatrick/P1
 
-python build_cube.py /cephfs/apatrick/musecosmos/scripts/aligned/mosaics
+python build_cube.py 
 
 
 need to take args :
@@ -125,7 +125,7 @@ def create_data_stack(fits_dir, csv_dir):
 
 def make_muse_cube(cube_data, wave_array, wcs):
     """Put stacked data, WCS, and wavelengths into an MPDAF Cube."""
-    cube = Cube(data=cube_data, wcs=wcs, wave=wave_array, copy=False)
+    cube = Cube(data=cube_data, wcs=wcs, wave=wave_array, copy=False) # it cant make the wav array into a header
     return cube
 
 

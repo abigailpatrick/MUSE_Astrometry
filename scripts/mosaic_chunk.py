@@ -1,5 +1,5 @@
 """
-run like this: python mosaic_chunk.py --path /cephfs/apatrick/musecosmos/reduced_cubes/norm --offsets_txt /cephfs/apatrick/musecosmos/scripts/aligned/offsets.txt --slice 100 --output_file mosaic.fits --plotting
+run like this: python mosaic_chunk.py --path /cephfs/apatrick/musecosmos/reduced_cubes/norm --offsets_txt /cephfs/apatrick/musecosmos/scripts/aligned/offsets.txt --slice 100 --output_file mosaic.fits --mean_stack_file mean_stack.fits --plotting
 
 do this before running from P1 : cp /cephfs/apatrick/musecosmos/scripts/mosaic_chunk.py /home/apatrick/P1
 - move all norm.fits to new file and then update input path to take that
@@ -9,6 +9,7 @@ do this before running from P1 : cp /cephfs/apatrick/musecosmos/scripts/mosaic_c
 - copy sbatch cp /cephfs/apatrick/musecosmos/scripts/slurm/run_mosaicslices.slurm /home/apatrick/P1/slurm
 """
 from concurrent.futures import ProcessPoolExecutor
+from html import parser
 import os
 import argparse
 from astropy.io import fits
@@ -43,6 +44,8 @@ def parse_args():
                         help='Wavelength slice to extract from each cube')
     parser.add_argument('--output_file', type=str, required=True,
                         help='Output FITS file path for the mosaic')
+    parser.add_argument('--mean_stack_file', type=str, required=True,
+                        help='Output FITS file path for the mean stack')
     parser.add_argument('--plotting', action='store_true',
                         help='Enable plotting of the mosaic')
     parser.add_argument('--tmp_dir', type=str, default='/cephfs/apatrick/musecosmos/scripts/aligned/tmp_slice', help='Optional temp dir for slices')
@@ -105,7 +108,7 @@ def i_slice(cubes, slice_number):
     Returns
     -------
     i_slice : dict
-        Dictionary {file_id: {"data": 2D array, "wcs": WCS object}}.
+        Dictionary {file_id: {"data": 2D array, "wcs": WCS object, "wcs_e": full header}}.
     """
     i_slice = {}
 
@@ -310,7 +313,7 @@ def reproject_and_save_slices(aligned_slices, wcs_out, shape_out, output_dir, re
 
 def mosaic_from_files(file_list):
     """
-    Median-stack reprojected slices stored on disk using memmap.
+    Median-stack (and mean) reprojected slices stored on disk using memmap.
 
     Inputs
     ------
@@ -323,6 +326,8 @@ def mosaic_from_files(file_list):
         The final mosaic data array (median stacked).
     mosaic_wcs : WCS
         The WCS object for the final mosaic (same as slices).
+    mean_stack : ndarray
+        The mean stack of the reprojected slices.
     """
     arrays = [fits.open(f, memmap=True)[0].data for f in file_list]
 
@@ -331,15 +336,15 @@ def mosaic_from_files(file_list):
 
     # Compute nanmedian along slices axis
     mosaic_data = np.nanmedian(stack, axis=0)
-
+    mean_stack = np.nanmean(stack, axis=0)
 
     # Use WCS from first file
     wcs = WCS(fits.getheader(file_list[0]))
     
-    return mosaic_data, wcs
+    return mosaic_data, wcs, mean_stack
 
 
-def save_mosaic(mosaic, mosaic_wcs, output_file, file_ids, offsets, a_m, wcs_e):
+def save_mosaic(mosaic, mean_stack, mosaic_wcs, output_file, mean_stack_file, file_ids, offsets, a_m, wcs_e):
     """
     Save the mosaic to a FITS file and add slice info to the header.
 
@@ -347,10 +352,14 @@ def save_mosaic(mosaic, mosaic_wcs, output_file, file_ids, offsets, a_m, wcs_e):
     ----------
     mosaic : ndarray
         The 2D mosaic data array.
+    mean_stack : ndarray
+        The mean stack of the reprojected slices.
     mosaic_wcs : WCS
         WCS object of the mosaic.
     output_file : str
         Path to save the FITS file.
+    mean_stack_file : str
+        Path to save the FITS file for the mean stack.
     file_ids : list of str
         List of file IDs used in the mosaic.
     offsets : list of tuple
@@ -387,6 +396,7 @@ def save_mosaic(mosaic, mosaic_wcs, output_file, file_ids, offsets, a_m, wcs_e):
 
     # Create primary HDU with data and merged header
     hdu = fits.PrimaryHDU(data=mosaic, header=mosaic_header)
+    hdu_mean = fits.PrimaryHDU(data=mean_stack, header=mosaic_header)
 
     # Add slice info to header
     for i, (fid, off, typ) in enumerate(zip(file_ids, offsets, a_m), 1):
@@ -394,9 +404,17 @@ def save_mosaic(mosaic, mosaic_wcs, output_file, file_ids, offsets, a_m, wcs_e):
         hdu.header[f'OFF{i}'] = str(off)  # store as string (x, y)
         hdu.header[f'TYPE{i}'] = typ
 
+# Add slice info to header
+    for i, (fid, off, typ) in enumerate(zip(file_ids, offsets, a_m), 1):
+        hdu_mean.header[f'FILE{i}'] = fid
+        hdu_mean.header[f'OFF{i}'] = str(off)  # store as string (x, y)
+        hdu_mean.header[f'TYPE{i}'] = typ
+
     # Save to FITS
     hdu.writeto(output_file, overwrite=True)
     print(f"Saved mosaic to {output_file}")
+    hdu_mean.writeto(mean_stack_file, overwrite=True)
+    print(f"Saved mean stack to {mean_stack_file}")
 
 
 
@@ -485,7 +503,7 @@ def main():
     print(f"Extracted {len(slices)} slices.")
 
     wcs_e = slices[cubes[0].file_id]['wcs_e']  # Full WCS from first cube
-    print (wcs_e)
+    #print (wcs_e)
 
     # Align slices using pixel offsets
     i_slice_data = [slices[cube.file_id]['data'] for cube in cubes]
@@ -506,7 +524,7 @@ def main():
     file_list = reproject_and_save_slices(aligned_slices, wcs_out, shape_out, tmp_dir)
 
     # Median stack from disk using memmap
-    mosaic_data, mosaic_wcs = mosaic_from_files(file_list)
+    mosaic_data, mosaic_wcs, mean_stack = mosaic_from_files(file_list)
     print(f"Created mosaic from {len(file_list)} reprojected slices.")
 
     # Prepare lists for FITS header
@@ -514,8 +532,8 @@ def main():
     a_m = [cube.flag for cube in cubes]  # assuming cubes have 'flag' attribute
 
     # Save the mosaic to FITS
-    save_mosaic(mosaic_data, mosaic_wcs, args.output_file, file_ids, offsets, a_m, wcs_e)
-    print(f"Saved mosaic to {args.output_file}")
+    save_mosaic(mosaic_data, mean_stack, mosaic_wcs, args.output_file, args.mean_stack_file, file_ids, offsets, a_m, wcs_e)
+    
 
     # Plot the mosaic if --plotting is True
     if getattr(args, 'plotting', False):
