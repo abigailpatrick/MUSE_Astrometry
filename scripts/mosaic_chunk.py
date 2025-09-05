@@ -210,7 +210,7 @@ def align_i_slices(i_slice_data, i_slice_wcs, offsets):
         new_wcs = wcs.deepcopy()
         
         # Apply pixel shifts
-        new_wcs.wcs.crpix[0] -= dx  # RA axis
+        new_wcs.wcs.crpix[0] -= dx  # RA ax is
         new_wcs.wcs.crpix[1] += dy  # Dec axis
         
         aligned_i_slice.append({

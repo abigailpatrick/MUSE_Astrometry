@@ -38,7 +38,7 @@ import os
 import numpy as np
 import pandas as pd
 from astropy.io import fits
-from mpdaf.obj import Cube, WCS
+from mpdaf.obj import Cube, WCS, WaveCoord
 
 
 def parse_args():
@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument(
         "--fits_dir",
         type=str,
-        default="/cephfs/apatrick/musecosmos/scripts/aligned/mosaics",
+        default="/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/full",
         help="Path to directory with 2D slice FITS files.",
     )
     parser.add_argument(
@@ -59,8 +59,20 @@ def parse_args():
     parser.add_argument(
         "--output",
         type=str,
-        default="/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/big_cube/big_cube.fits",
+        default="/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/big_cube/test_CUBE.fits",
         help="Output path for the combined cube.",
+    )
+    parser.add_argument(
+        "--start_id",
+        type=int,
+        default=None,
+        help="Optional starting slice ID (inclusive).",
+    )
+    parser.add_argument(
+        "--end_id",
+        type=int,
+        default=None,
+        help="Optional ending slice ID (inclusive).",
     )
     return parser.parse_args()
 
@@ -79,63 +91,127 @@ def load_slice_fits(fits_path):
         data = hdul[0].data
         header = hdul[0].header
 
-    # Use MPDAF WCS directly from header (2D spatial)
     wcs = WCS(header)
-
+    
     return data, wcs
 
 
-def create_data_stack(fits_dir, csv_dir):
-    """Create data stack, wavelength list, and WCS from slices."""
-    data_stack = []
-    wave_list = []
-    wcs_list = []
-
+def list_fits_files(fits_dir, start_id=None, end_id=None):
+    """List and filter FITS files by optional slice ID range."""
     fits_files = [f for f in os.listdir(fits_dir) if f.startswith("mosaic_slice_") and f.endswith(".fits")]
-    fits_files.sort()
+    filtered = []
 
-    for fits_file in fits_files:
-        slice_id = fits_file.split("_")[-1].replace(".fits", "")
-        csv_file = f"{slice_id}_wave.csv"
-        csv_path = os.path.join(csv_dir, csv_file)
-        fits_path = os.path.join(fits_dir, fits_file)
-
-        if not os.path.exists(csv_path):
-            print(f"Missing CSV for {fits_file}, skipping.")
+    for f in fits_files:
+        slice_id_str = f.split("_")[-1].replace(".fits", "")
+        try:
+            slice_id = int(slice_id_str)
+        except ValueError:
+            print(f"Cannot parse slice ID from {f}, skipping.")
             continue
 
-        slice_num, median_wave = get_slice_info(csv_path)
-        data, wcs = load_slice_fits(fits_path)
+        if (start_id is not None and slice_id < start_id) or (end_id is not None and slice_id > end_id):
+            continue
 
+        filtered.append((slice_id, f))
+
+    filtered.sort(key=lambda x: x[0])
+    return [f[1] for f in filtered]
+
+
+def load_slice(fits_file, fits_dir, csv_dir):
+    """Load a single FITS slice and median wavelength."""
+    fits_path = os.path.join(fits_dir, fits_file)
+    slice_id = os.path.basename(fits_file).split("_")[-1].replace(".fits", "")
+    csv_file = f"{slice_id}_wave.csv"
+    csv_path = os.path.join(csv_dir, csv_file)
+
+    if not os.path.exists(csv_path):
+        print(f"Missing CSV for {fits_file}, skipping.")
+        return None, None, None
+
+    slice_num, median_wave = get_slice_info(csv_path)
+    data, wcs = load_slice_fits(fits_path)
+    return data, wcs, median_wave
+
+
+def stack_slices(fits_files, fits_dir, csv_dir):
+    """Stack multiple slices into cube_data, wave_array, and reference WCS."""
+    data_stack, wave_list, wcs_list = [], [], []
+
+    for f in fits_files:
+        data, wcs, median_wave = load_slice(f, fits_dir, csv_dir)
+        if data is None:
+            continue
         data_stack.append(data)
         wave_list.append(median_wave)
         wcs_list.append(wcs)
 
+    if len(data_stack) == 0:
+        raise RuntimeError("No valid slices found.")
+
     cube_data = np.array(data_stack)
     wave_array = np.array(wave_list)
+    wcs_ref = wcs_list[0]
 
     # Sort by wavelength
     order = np.argsort(wave_array)
     cube_data = cube_data[order, :, :]
     wave_array = wave_array[order]
-    wcs_ref = wcs_list[order[0]]  # first slice WCS as reference
 
     return cube_data, wave_array, wcs_ref
 
 
+def create_data_stack(fits_dir, csv_dir, start_id=None, end_id=None):
+    """Main wrapper to list, load, and stack slices."""
+    fits_files = list_fits_files(fits_dir, start_id, end_id)
+    return stack_slices(fits_files, fits_dir, csv_dir)
+
+
 def make_muse_cube(cube_data, wave_array, wcs):
-    """Put stacked data, WCS, and wavelengths into an MPDAF Cube."""
-    cube = Cube(data=cube_data, wcs=wcs, wave=wave_array, copy=False) # it cant make the wav array into a header
+    """Create MPDAF Cube with linear wavelength axis, enforcing 1.25 Å spacing."""
+    cdelt_array = np.diff(wave_array)
+    cdelt_median = np.median(cdelt_array)
+
+    if not np.allclose(cdelt_array, 1.25, rtol=1e-3):
+        raise ValueError(f"Wavelength spacing is not 1.25 Å: median={cdelt_median}")
+
+    wave = WaveCoord(
+        crval=wave_array[0],
+        cdelt=cdelt_median,
+        cunit='Angstrom',
+        crpix=1.,
+        shape=(len(wave_array),)
+    )
+
+    cube = Cube(data=cube_data, wcs=wcs, wave=wave, copy=False)
     return cube
 
 
 def main():
     args = parse_args()
-    cube_data, wave_array, wcs = create_data_stack(args.fits_dir, args.csv_dir)
+
+    cube_data, wave_array, wcs = create_data_stack(
+        args.fits_dir,
+        args.csv_dir,
+        start_id=args.start_id,
+        end_id=args.end_id
+    )
+
     cube = make_muse_cube(cube_data, wave_array, wcs)
+    fits_files = list_fits_files(args.fits_dir, args.start_id, args.end_id)
+    first_slice_path = os.path.join(args.fits_dir, fits_files[0])
+    with fits.open(first_slice_path) as hdul:
+        full_header = hdul[0].header.copy()
+    cube.primary_header = full_header.copy()
+    # add a header comment saying spatial header from first slice
+    cube.primary_header.add_comment("Spatial WCS from first slice")
+    cube.primary_header.add_comment("Wavelength axis constructed from median slice wavelengths")
+    
+
+    print(f"Cube shape: {cube.shape}, WCS: {cube.wcs}, Wave: {cube.wave}")
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    cube.write(args.output, savemask="none", overwrite=True)
+    cube.write(args.output, savemask="none")
     print(f"Saved cube to {args.output}")
 
 
