@@ -27,20 +27,20 @@ with fits.open(cube_file) as hdul:
 
 
     # Print the full header
-    #print("\n=== Full header ===")
-    #print(repr(header))
+    print("\n=== Full header ===")
+    print(repr(header))
 """
 
 # this section is checking full 
 # Path to your 3D cube
-cube_file = "/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/big_cube/big_cube_lya.fits"
+cube_file = "/cephfs/apatrick/musecosmos/reduced_cubes/norm/DATACUBE_FINAL_Autocal3693040b_1_ZAP_norm.fits"
 
 with fits.open(cube_file) as hdul:
     print("=== FITS file structure ===")
     hdul.info()
 
     
-    hdu = hdul[0]
+    hdu = hdul[1]
 
 
     data = hdu.data
@@ -52,7 +52,7 @@ with fits.open(cube_file) as hdul:
 
     """ 
     # Check for NaNs
-    slicenum = 3245
+    slicenum = 1536
     print(f"\n=== Number of NANS in wavelength slice {slicenum} ===")
     print(np.isnan(data[slicenum, :, :]).sum())
     print("\n===== Number of Data Values ====")
@@ -63,6 +63,7 @@ with fits.open(cube_file) as hdul:
     print(f"\n==== Number of slices with all NANs ====")
     print(np.count_nonzero(np.all(np.isnan(data), axis=(1, 2))))
     print(f" Slices with all NANs: {np.where(np.all(np.isnan(data), axis=(1, 2)))[0]}")
+    print (f"\n===== Slice wavelength ===== ")
     """
 
     # Print basic info from the header

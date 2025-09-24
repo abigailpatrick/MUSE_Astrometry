@@ -7,16 +7,25 @@ import astropy.units as u
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 
-def get_halpha_candidates(band, mosaic_fits, wcs, mosaic_data):
+
+
+def get_halpha_candidates(band, z_low=5.5, z_high=6.5, strict=True):
     # Read catalog
     fits_path = f"/home/apatrick/P1/JELSDP/jels_{band}_detected_source_catalogue_v1.0.fits"
     catalog = Table.read(fits_path)
+    
 
-    # Filter by redshift and quality
+    # Define emission line condition
+    if strict:
+        em_cond = catalog['Emission_line_goodz'] == True
+    else:
+        em_cond = catalog['Emission_line'] == True
+
+    # Filter by redshift and emission line
     halpha_candidates = catalog[
-        (catalog['z1_median'] >= 5.5) &
-        (catalog['z1_median'] <= 6.5) &
-        (catalog['Emission_line_goodz'] == True)
+        (catalog['z1_median'] >= z_low) &
+        (catalog['z1_median'] <= z_high) &
+        em_cond
     ]
 
     print (f"Found {len(halpha_candidates)} H-alpha candidates for band {band}")
@@ -31,6 +40,29 @@ def get_halpha_candidates(band, mosaic_fits, wcs, mosaic_data):
 
     halpha_candidates = halpha_candidates[~np.isin(halpha_candidates['ID'], exclude_ids)]
     print(f"After excluding flagged IDs, {len(halpha_candidates)} candidates remain for band {band}")
+
+    return halpha_candidates
+
+# Get candidates for both bands
+candidates_466 = get_halpha_candidates("F466N", z_low=5.5, z_high=6.5, strict=True)
+candidates_470 = get_halpha_candidates("F470N", z_low=5.5, z_high=6.5, strict=True)
+
+# Combine tables
+all_candidates = vstack([candidates_466, candidates_470])
+
+print(f"Total combined JELS H-alpha candidates 5.5<z<6.5: {len(all_candidates)}")
+
+# Get candidates for both bands
+candidates_466_w = get_halpha_candidates("F466N", z_low=4.92, z_high=6.69, strict=False)
+candidates_470_w = get_halpha_candidates("F470N", z_low=4.92, z_high=6.69, strict=False)
+
+# Combine tables
+all_candidates_w = vstack([candidates_466_w, candidates_470_w]) 
+
+print(f"Total combined JELS H-alpha candidates 4.92<z<6.69: {len(all_candidates_w)}")
+
+""" 
+def get_candidates_in_mosaic(band,halpha_candidates, wcs, mosaic_data):
 
     # Convert to SkyCoord
     ra_values = halpha_candidates['ra'].data
@@ -76,7 +108,7 @@ def get_halpha_candidates(band, mosaic_fits, wcs, mosaic_data):
     csv_path = f"/home/apatrick/P1/outputfiles/jels_{band}_halpha_candidates.csv"
     valid_candidates.write(csv_path, format='csv', overwrite=True)
     print(f"Saved valid candidates to {csv_path}")
-
+    
     return valid_candidates
 
 # Load MUSE mosaic once
@@ -86,16 +118,16 @@ with fits.open(mosaic_fits) as hdul:
     wcs = WCS(hdul[0].header)
 
 # Get candidates for both bands
-candidates_466 = get_halpha_candidates("F466N", mosaic_fits, wcs, mosaic_data)
-candidates_470 = get_halpha_candidates("F470N", mosaic_fits, wcs, mosaic_data)
+candidates_466_mosaic = get_candidates_in_mosaic("F466N", candidates_466, wcs, mosaic_data)
+candidates_470_mosaic = get_candidates_in_mosaic("F470N", candidates_470, wcs, mosaic_data)
 
 # Combine tables
-all_candidates = vstack([candidates_466, candidates_470])
+all_candidates_mosaic = vstack([candidates_466_mosaic, candidates_470_mosaic])
 
-print(f"Total combined candidates: {len(all_candidates)}")
+print(f"Total combined candidates in current MUSE mosaic: {len(all_candidates_mosaic)}")
 
 # Print list of candidate IDs
-print("Combined candidate IDs:", np.array(all_candidates['ID']))
+print("Combined candidates in mosaic IDs:", np.array(all_candidates_mosaic['ID']))
 
 # ---------- PLOTTING ----------
 fig, ax = plt.subplots(figsize=(10, 10))
@@ -104,7 +136,7 @@ ax.imshow(mosaic_data, origin='lower', cmap='gray', vmin=vmin, vmax=vmax)
 
 # Plot all candidates with different colors by band
 colors = {'F466N': 'red', 'F470N': 'blue'}
-for i, row in enumerate(all_candidates):
+for i, row in enumerate(all_candidates_mosaic):
     x = row['x_pix']
     y = row['y_pix']
     band = row['band']
@@ -125,3 +157,5 @@ save_path = "/cephfs/apatrick/musecosmos/scripts/aligned/halpha_candidates_combi
 plt.savefig(save_path, dpi=300, bbox_inches='tight')
 print(f"Saved combined plot to {save_path}")
 plt.show()
+
+"""

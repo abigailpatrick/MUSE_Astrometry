@@ -1,5 +1,6 @@
 
 
+
 """
 cp /cephfs/apatrick/musecosmos/scripts/build_cube.py /home/apatrick/P1
 
@@ -59,7 +60,7 @@ def parse_args():
     parser.add_argument(
         "--output",
         type=str,
-        default="/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/big_cube/test_CUBE.fits",
+        default="/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/big_cube/MEGA_CUBE.fits",
         help="Output path for the combined cube.",
     )
     parser.add_argument(
@@ -136,12 +137,17 @@ def load_slice(fits_file, fits_dir, csv_dir):
 
 def stack_slices(fits_files, fits_dir, csv_dir):
     """Stack multiple slices into cube_data, wave_array, and reference WCS."""
-    data_stack, wave_list, wcs_list = [], [], []
+    data_stack, wave_list, slice_list, wcs_list = [], [], [], []
 
     for f in fits_files:
         data, wcs, median_wave = load_slice(f, fits_dir, csv_dir)
         if data is None:
             continue
+        
+        # Extract slice number from filename
+        slice_num = int(os.path.basename(f).split("_")[-1].replace(".fits", ""))
+        slice_list.append(slice_num)
+
         data_stack.append(data)
         wave_list.append(median_wave)
         wcs_list.append(wcs)
@@ -151,14 +157,20 @@ def stack_slices(fits_files, fits_dir, csv_dir):
 
     cube_data = np.array(data_stack)
     wave_array = np.array(wave_list)
+    slice_array = np.array(slice_list)
     wcs_ref = wcs_list[0]
 
     # Sort by wavelength
     order = np.argsort(wave_array)
     cube_data = cube_data[order, :, :]
     wave_array = wave_array[order]
+    slice_array = slice_array[order]
+    print(f"Number of stacked slices: {len(wave_array)}")
 
-    return cube_data, wave_array, wcs_ref
+    print(f"Stacked cube shape: {cube_data.shape}")
+
+
+    return cube_data, wave_array, slice_array, wcs_ref
 
 
 def create_data_stack(fits_dir, csv_dir, start_id=None, end_id=None):
@@ -167,14 +179,21 @@ def create_data_stack(fits_dir, csv_dir, start_id=None, end_id=None):
     return stack_slices(fits_files, fits_dir, csv_dir)
 
 
-def make_muse_cube(cube_data, wave_array, wcs):
+def make_muse_cube(cube_data, wave_array, slice_array, wcs):
     """Create MPDAF Cube with linear wavelength axis, enforcing 1.25 Å spacing."""
     cdelt_array = np.diff(wave_array)
     cdelt_median = np.median(cdelt_array)
 
-    if not np.allclose(cdelt_array, 1.25, rtol=1e-3):
-        raise ValueError(f"Wavelength spacing is not 1.25 Å: median={cdelt_median}")
-
+    bad_idx = np.where(~np.isclose(cdelt_array, 1.25, rtol=1e-3))[0]
+    if bad_idx.size > 0:
+        # Report slice numbers corresponding to the spacing problem
+        bad_slices = slice_array[bad_idx]
+        raise ValueError(
+            f"Wavelength spacing is not 1.25 Å: median={cdelt_median}\n"
+            f"Problematic slices: {bad_slices}\n"
+            f"Problematic spacings: {cdelt_array[bad_idx]}"
+        )
+    
     wave = WaveCoord(
         crval=wave_array[0],
         cdelt=cdelt_median,
@@ -190,23 +209,26 @@ def make_muse_cube(cube_data, wave_array, wcs):
 def main():
     args = parse_args()
 
-    cube_data, wave_array, wcs = create_data_stack(
+    cube_data, wave_array, slice_array, wcs = create_data_stack(
         args.fits_dir,
         args.csv_dir,
         start_id=args.start_id,
         end_id=args.end_id
     )
 
-    cube = make_muse_cube(cube_data, wave_array, wcs)
+    cube = make_muse_cube(cube_data, wave_array, slice_array, wcs)
     fits_files = list_fits_files(args.fits_dir, args.start_id, args.end_id)
     first_slice_path = os.path.join(args.fits_dir, fits_files[0])
     with fits.open(first_slice_path) as hdul:
         full_header = hdul[0].header.copy()
     cube.primary_header = full_header.copy()
+    # change OBJECT to "MEGA_CUBE"
+    cube.primary_header['OBJECT'] = "COSMOS_JELS_FULL_CUBE"
     # add a header comment saying spatial header from first slice
     cube.primary_header.add_comment("Spatial WCS from first slice")
     cube.primary_header.add_comment("Wavelength axis constructed from median slice wavelengths")
-    
+    print(f"Cube primary header:\n{repr(cube.primary_header)}")
+
 
     print(f"Cube shape: {cube.shape}, WCS: {cube.wcs}, Wave: {cube.wave}")
 

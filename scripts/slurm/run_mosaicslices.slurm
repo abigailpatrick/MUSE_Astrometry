@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=mosaic_array
-#SBATCH --array=0-681               # 1000 array jobs (each one handles a different slice)
+#SBATCH --array=0-10               # 1000 array jobs (each one handles a different slice)
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8           # One Python process per slice, with 8 CPU cores
 #SBATCH --mem=80G
@@ -19,7 +19,7 @@ OUTPUT_DIR="/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/full"
 TMP_BASE="/cephfs/apatrick/musecosmos/scripts/aligned/tmp_slices"
 
 # Map array index to slice number
-START_SLICE=3000 #3035 for 180 slices to do lya region
+START_SLICE=1532 #3035 for 180 slices to do lya region
 SLICE_NUM=$((START_SLICE + SLURM_ARRAY_TASK_ID))
 
 echo "Job $SLURM_ARRAY_TASK_ID processing slice $SLICE_NUM"
