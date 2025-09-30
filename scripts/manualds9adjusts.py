@@ -52,7 +52,7 @@ def offset_wcs_2d(musefile, ra_offset_deg, dec_offset_deg):
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(
             output_dir,
-            os.path.basename(musefile).replace('.fits', '_aligned.fits')
+            os.path.basename(musefile).replace('.fits', '_aligned1.fits')
         )
         fits.writeto(output_path, data, hdr, overwrite=True)
         print(f"Aligned file saved to: {output_path}")

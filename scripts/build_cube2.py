@@ -60,7 +60,7 @@ def parse_args():
     parser.add_argument(
         "--output",
         type=str,
-        default="/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/big_cube/MEGA_CUBE.fits",
+        default="/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/big_cube/MEGA_CUBE_mean_stack.fits",
         help="Output path for the combined cube.",
     )
     parser.add_argument(
@@ -99,7 +99,7 @@ def load_slice_fits(fits_path):
 
 def list_fits_files(fits_dir, start_id=None, end_id=None):
     """List and filter FITS files by optional slice ID range."""
-    fits_files = [f for f in os.listdir(fits_dir) if f.startswith("mosaic_slice_") and f.endswith(".fits")]
+    fits_files = [f for f in os.listdir(fits_dir) if f.startswith("mean_stack_") and f.endswith(".fits")]
     filtered = []
 
     for f in fits_files:
@@ -241,7 +241,7 @@ def main():
         primary_hdu = fits.PrimaryHDU(data=mpdaf_hdu.data, header=mpdaf_hdu.header)
 
         # --- Header-only extension with long header + comments ---
-        long_header['OBJECT'] = "COSMOS_MEGA_CUBE"
+        long_header['OBJECT'] = "COSMOS_MEGA_CUBE_mean_stack"
         long_header.add_comment("Spatial WCS from first slice")
         long_header.add_comment("Wavelength axis constructed from median slice wavelengths")
         header_hdu = fits.ImageHDU(header=long_header, name="FULLHEADER")

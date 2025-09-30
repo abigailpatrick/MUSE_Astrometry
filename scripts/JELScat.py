@@ -60,8 +60,7 @@ candidates_470_w = get_halpha_candidates("F470N", z_low=4.92, z_high=6.69, stric
 all_candidates_w = vstack([candidates_466_w, candidates_470_w]) 
 
 print(f"Total combined JELS H-alpha candidates 4.92<z<6.69: {len(all_candidates_w)}")
-
-""" 
+#""" 
 def get_candidates_in_mosaic(band,halpha_candidates, wcs, mosaic_data):
 
     # Convert to SkyCoord
@@ -123,6 +122,14 @@ candidates_470_mosaic = get_candidates_in_mosaic("F470N", candidates_470, wcs, m
 
 # Combine tables
 all_candidates_mosaic = vstack([candidates_466_mosaic, candidates_470_mosaic])
+# limit to just ra dec and z columns 
+ha_candidates_mosaic = all_candidates_mosaic['ra', 'dec', 'z1_median']
+
+# Save combined valid candidates as csv
+csv_path = "/home/apatrick/P1/outputfiles/jels_halpha_candidates_mosaic.csv"
+ha_candidates_mosaic.write(csv_path, format='csv', overwrite=True)
+print(f"Saved combined valid candidates to {csv_path}")
+"""
 
 print(f"Total combined candidates in current MUSE mosaic: {len(all_candidates_mosaic)}")
 
