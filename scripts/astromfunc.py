@@ -843,29 +843,34 @@ def align_wcs_using_pixel_shift(musefile, matched_catalog, log_file='offsets.log
         return output_path, extent_a
 
 
-def offset_txt(matched_catalog, musefile, output_dir='aligned'):
+def offset_txt(matched_catalog, musefile, task_id=None, output_dir='aligned'):
     """
-    Take a median pixel shift a musefile name and add as a line to a text file.
-    
+    Take a median pixel shift and save it as a line to a unique text file
+    (per SLURM task). Later merge them all into a single offsets.txt.
+
     Parameters:
     - matched_catalog: Table with 'RA_offset_pix', 'Dec_offset_pix' columns
     - musefile: str, path to input MUSE FITS file
-    - output_dir: str, directory to save the output file
+    - task_id: int or str, SLURM_ARRAY_TASK_ID (optional, helps naming files uniquely)
+    - output_dir: str, directory to save the output files
     """
 
     # Compute median pixel shift
     dx = np.median(matched_catalog['RA_offset_pix'])
     dy = np.median(matched_catalog['Dec_offset_pix'])
 
-    # Create txt file
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    output_file = os.path.join(output_dir, 'offsets.txt')
-    with open(output_file, 'a') as f:
-        f.write(f"{musefile} {dx:.5f} {dy:.5f} {'a'}\n")          
-    print(f"Added offsets for {musefile} to {output_file}")
+    # Make sure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
 
-    print ("ran offset_txt")
+    # Create a unique filename for this task
+    if task_id is None:
+        task_id = os.getpid()  # fallback if SLURM task ID not passed
+    output_file = os.path.join(output_dir, f'offsets_{task_id}.txt')
 
+    # Write to the unique file
+    with open(output_file, 'w') as f:
+        f.write(f"{musefile} {dx:.5f} {dy:.5f} a\n")
+
+    print(f"Saved offsets for {musefile} to {output_file}")
     return output_file
 

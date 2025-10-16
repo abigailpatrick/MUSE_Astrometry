@@ -1,6 +1,10 @@
 from astropy.io import fits
 import numpy as np
 # cp /cephfs/apatrick/musecosmos/scripts/check_slice.py /home/apatrick/P1
+
+
+hdu = fits.open("/cephfs/apatrick/musecosmos/dataproducts/extractions/source_1_subcube.fits")
+hdu.info()
 """
 # Path to your file
 cube_file = "/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/full/mosaic_slice_860.fits"
@@ -29,7 +33,7 @@ with fits.open(cube_file) as hdul:
     # Print the full header
     print("\n=== Full header ===")
     print(repr(header))
-"""
+
 
 # this section is checking full 
 # Path to your 3D cube
@@ -50,7 +54,7 @@ with fits.open(cube_file) as hdul:
     #print("\n=== Data shape ===")
     #print(data.shape)  # (n_lambda, ny, nx) or (nz, ny, nx)
 
-    """ 
+
     # Check for NaNs
     slicenum = 1536
     print(f"\n=== Number of NANS in wavelength slice {slicenum} ===")
@@ -64,7 +68,7 @@ with fits.open(cube_file) as hdul:
     print(np.count_nonzero(np.all(np.isnan(data), axis=(1, 2))))
     print(f" Slices with all NANs: {np.where(np.all(np.isnan(data), axis=(1, 2)))[0]}")
     print (f"\n===== Slice wavelength ===== ")
-    """
+  
 
     # Print basic info from the header
     print("\n=== Header info ===")
@@ -79,4 +83,4 @@ with fits.open(cube_file) as hdul:
     print("\n=== Full header ===")
     print(repr(header))
 
-#"""
+"""

@@ -1,8 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=build_cube
+#SBATCH --partition=all
 #SBATCH --output=build_cube_%j.log
 #SBATCH --error=build_cube_%j.err
-#SBATCH --time=3:00:00
+#SBATCH --time=6:00:00
 #SBATCH --mem=480G
 #SBATCH --cpus-per-task=1
 
@@ -18,7 +19,7 @@ echo "SLURM job ID: $SLURM_JOB_ID"
 echo "---------------------------"
 
 # Run your Python script with memory monitoring in background
-/usr/bin/time -v python build_cube.py --start_id 0 --end_id 3681 2>&1 | tee build_cube_${SLURM_JOB_ID}_runtime.log
+/usr/bin/time -v python build_cube.py --start_id 0 --end_id 3680 2>&1 | tee build_cube_${SLURM_JOB_ID}_runtime.log
 
 echo "---------------------------"
 echo "Job finished at: $(date)"

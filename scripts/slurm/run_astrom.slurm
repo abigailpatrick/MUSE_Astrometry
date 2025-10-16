@@ -4,7 +4,7 @@
 #SBATCH --time=02:00:00
 #SBATCH --output=job_output_%A_%a.log
 #SBATCH --error=job_error_%A_%a.log
-#SBATCH --array=0-295 #
+#SBATCH --array=0-294 #
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 
@@ -19,6 +19,7 @@ conda activate env39
 
 # Create an array of all FITS files found under reduced3 (recursively)
 mapfile -t MUSE_FILES < <(find /cephfs/apatrick/musecosmos/reduced_cubes/white -name "*.fits" | sort)
+echo "${#MUSE_FILES[@]} files found."
 
 # Validate task ID
 if [ "$SLURM_ARRAY_TASK_ID" -ge "${#MUSE_FILES[@]}" ]; then
@@ -35,3 +36,5 @@ echo "Running astrom.py on $MUSE_FILE"
 python astrom.py "$MUSE_FILE" "$NEW_FILE"
 
 echo "Done with $NEW_FILE"
+
+# Now get offsets.txt from cat offsets_*.txt | awk '!seen[$1]++' > offsets.txt

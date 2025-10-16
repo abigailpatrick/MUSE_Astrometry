@@ -18,5 +18,6 @@ srun python /cephfs/apatrick/musecosmos/scripts/cube_extractions.py \
     --objects /home/apatrick/P1/outputfiles/jels_halpha_candidates_mosaic.csv \
     --spatial_radius 40.0 \
     --spectral_radius 50.0 \
+    # Lyman-alpha rest wavelength in Angstroms
     --rest_wavelength 1215.67 \
     --output /cephfs/apatrick/musecosmos/dataproducts/extractions/

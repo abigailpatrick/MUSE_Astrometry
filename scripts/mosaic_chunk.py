@@ -46,8 +46,10 @@ def parse_args():
                         help='Output FITS file path for the mosaic')
     parser.add_argument('--mean_stack_file', type=str, required=True,
                         help='Output FITS file path for the mean stack')
+    parser.add_argument('--mask_percent', type=float, default=1.0,
+                        help='Percentage of lowest pixels to mask (default 1.0), must be what was used in white-light mask creation step')
     parser.add_argument('--plotting', action='store_true',
-                        help='Enable plotting of the mosaic')
+                        help='Enable plotting of the mosaic')   
     parser.add_argument('--tmp_dir', type=str, default='/cephfs/apatrick/musecosmos/scripts/aligned/tmp_slice', help='Optional temp dir for slices')
 
     args = parser.parse_args()
@@ -130,6 +132,28 @@ def i_slice(cubes, slice_number):
     return i_slice
 
 
+def apply_saved_masks(aligned_slices, cubes, mask_dir, mask_percent=1.0):
+    """
+    Apply precomputed white-light masks to each aligned slice.
+    """
+    masked_slices = []
+    for i, cube in enumerate(cubes):
+        mask_filename = f"DATACUBE_FINAL_{cube.file_id}_ZAP_img_aligned_mask{int(mask_percent)}p.fits"
+        mask_path = os.path.join(mask_dir, mask_filename)
+
+        if os.path.exists(mask_path):
+            mask_data = fits.getdata(mask_path).astype(bool)
+            masked_data = np.where(mask_data, np.nan, aligned_slices[i]['data'])
+            masked_slices.append({
+                'data': masked_data,
+                'wcs': aligned_slices[i]['wcs'],
+                'applied_offset': aligned_slices[i]['applied_offset']
+            })
+            print(f"Applied saved mask to {cube.file_id}")
+        else:
+            masked_slices.append(aligned_slices[i])
+            print(f"WARNING: No mask found for {cube.file_id}, skipping mask")
+    return masked_slices
 
 
 
@@ -502,6 +526,7 @@ def main():
     slices = i_slice(cubes, args.slice)  # assumes each cube has .cube_path
     print(f"Extracted {len(slices)} slices.")
 
+
     wcs_e = slices[cubes[0].file_id]['wcs_e']  # Full WCS from first cube
     #print (wcs_e)
 
@@ -511,6 +536,26 @@ def main():
     offsets = [(cube.x_offset, cube.y_offset) for cube in cubes]
     aligned_slices = align_i_slices(i_slice_data, i_slice_wcs, offsets)
     print(f"Applied pixel offsets to slices.")
+
+    # Mask out lowest X% of pixels in each slice
+    mask_dir = '/cephfs/apatrick/musecosmos/scripts/aligned/masks'
+    
+    aligned_slices = apply_saved_masks(aligned_slices, cubes, mask_dir, args.mask_percent)
+    print(f"Applied {args.mask_percent} to slices.")
+
+    # plot masked slices for verification
+    for i, slice_dict in enumerate(aligned_slices):
+        norm = simple_norm(slice_dict['data'], 'sqrt', percent=99.5)
+        plt.figure(figsize=(6, 5))
+        plt.imshow(slice_dict['data'], origin='lower', cmap='viridis', norm=norm)
+        plt.title(f"Masked Aligned Slice {i} - {cubes[i].file_id}")
+        plt.colorbar(label='Flux')
+        plt.xlabel("Pixel X")
+        plt.ylabel("Pixel Y")
+        plt.tight_layout()
+        plt.savefig(f"masked_aligned_slice_{i}_{cubes[i].file_id}.png", dpi=300)
+        plt.close()
+        print(f"Saved masked aligned slice plot for {cubes[i].file_id}")
 
     # Find common WCS area
     wcs_out, shape_out = common_wcs_area(aligned_slices)

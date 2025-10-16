@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=mosaic_array
-#SBATCH --array=0-10               # 1000 array jobs (each one handles a different slice)
+#SBATCH --array=0-10           # 1000 array jobs (each one handles a different slice) 3681 slices total
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8           # One Python process per slice, with 8 CPU cores
 #SBATCH --mem=80G
-#SBATCH --time=00:20:00
+#SBATCH --time=00:30:00
 #SBATCH --output=logs/mosaic_%A_%a.out
 #SBATCH --error=logs/mosaic_%A_%a.err
 
@@ -19,7 +19,7 @@ OUTPUT_DIR="/cephfs/apatrick/musecosmos/scripts/aligned/mosaics/full"
 TMP_BASE="/cephfs/apatrick/musecosmos/scripts/aligned/tmp_slices"
 
 # Map array index to slice number
-START_SLICE=1532 #3035 for 180 slices to do lya region
+START_SLICE=3420 #3035 for 180 slices to do lya region
 SLICE_NUM=$((START_SLICE + SLURM_ARRAY_TASK_ID))
 
 echo "Job $SLURM_ARRAY_TASK_ID processing slice $SLICE_NUM"
@@ -29,7 +29,7 @@ SLICE_TMP_DIR="${TMP_BASE}/slice_${SLICE_NUM}_job${SLURM_ARRAY_JOB_ID}_task${SLU
 mkdir -p "$SLICE_TMP_DIR"
 
 # Run Python mosaic (single process per array task)
-python /home/apatrick/P1/mosaic_chunk.py \
+python /cephfs/apatrick/musecosmos/scripts/mosaic_chunk.py \
     --path "$CUBES_DIR" \
     --offsets_txt "$OFFSETS_TXT" \
     --slice $SLICE_NUM \

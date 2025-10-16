@@ -136,14 +136,37 @@ def load_slice(fits_file, fits_dir, csv_dir):
 
 
 def stack_slices(fits_files, fits_dir, csv_dir):
-    """Stack multiple slices into cube_data, wave_array, and reference WCS."""
+    """Stack multiple slices into cube_data, wave_array, and reference WCS.
+    Pads all slices to the size of the largest slice using NaNs.
+    """
     data_stack, wave_list, slice_list, wcs_list = [], [], [], []
 
+    # First, find the largest shape among all slices
+    max_rows = 0
+    max_cols = 0
+    for f in fits_files:
+        data, _, _ = load_slice(f, fits_dir, csv_dir)
+        if data is None:
+            continue
+        max_rows = max(max_rows, data.shape[0])
+        max_cols = max(max_cols, data.shape[1])
+
+    standard_shape = (max_rows, max_cols)
+    print(f"Padding all slices to standard shape: {standard_shape}")
+
+    # Stack slices
     for f in fits_files:
         data, wcs, median_wave = load_slice(f, fits_dir, csv_dir)
         if data is None:
             continue
-        
+
+        # Pad if slice is smaller than standard_shape
+        pad_rows = max(0, standard_shape[0] - data.shape[0])
+        pad_cols = max(0, standard_shape[1] - data.shape[1])
+        if pad_rows > 0 or pad_cols > 0:
+            data = np.pad(data, ((0, pad_rows), (0, pad_cols)),
+                          mode='constant', constant_values=np.nan)
+
         # Extract slice number from filename
         slice_num = int(os.path.basename(f).split("_")[-1].replace(".fits", ""))
         slice_list.append(slice_num)
@@ -155,6 +178,7 @@ def stack_slices(fits_files, fits_dir, csv_dir):
     if len(data_stack) == 0:
         raise RuntimeError("No valid slices found.")
 
+    # Convert to arrays
     cube_data = np.array(data_stack)
     wave_array = np.array(wave_list)
     slice_array = np.array(slice_list)
@@ -165,12 +189,12 @@ def stack_slices(fits_files, fits_dir, csv_dir):
     cube_data = cube_data[order, :, :]
     wave_array = wave_array[order]
     slice_array = slice_array[order]
-    print(f"Number of stacked slices: {len(wave_array)}")
 
+    print(f"Number of stacked slices: {len(wave_array)}")
     print(f"Stacked cube shape: {cube_data.shape}")
 
-
     return cube_data, wave_array, slice_array, wcs_ref
+
 
 
 def create_data_stack(fits_dir, csv_dir, start_id=None, end_id=None):
@@ -244,6 +268,7 @@ def main():
         long_header['OBJECT'] = "COSMOS_MEGA_CUBE"
         long_header.add_comment("Spatial WCS from first slice")
         long_header.add_comment("Wavelength axis constructed from median slice wavelengths")
+        long_header.add_comment("Data masked below 1.0% percentile")
         header_hdu = fits.ImageHDU(header=long_header, name="FULLHEADER")
 
         # --- Build final HDU list ---

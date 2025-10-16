@@ -161,7 +161,10 @@ matched_catalog_a, n_ra_points, n_dec_points = add_offsets(MUSE_fits_path,matche
 
 output_path, extent_a = align_wcs_using_pixel_shift(MUSE_fits_path, matched_catalog_a, log_file=f'outputs/offset_log.txt')
 
-out = offset_txt(matched_catalog_a, MUSE_fits_path)
+
+task_id = os.environ.get("SLURM_ARRAY_TASK_ID", None)
+out = offset_txt(matched_catalog_a, MUSE_fits_path, task_id=task_id)
+
 
 print('Astrometry checks complete')
 

@@ -8,15 +8,16 @@ _Note: This should be re-written when first re-ran to check for clarity._
 * Have astrom.py, run_astrom.slurm and astromfunc.py open and check the paths align. (The slurm script runs astrom.py which imports functions from astromfunc.py.)
 * Have the hst file covering the area, the path to these written in top of astrom.py
 * Run run_astrom.slurm
-* Produces an offsets file showing the correction that needs applying to each (from offset_txt file and aligned fits file for each whitelight image
+* Produces an offsets file showing the correction that needs applying to each from offset_txt file and aligned fits file for each whitelight image
+* To stop clashing when running, it saves the offsets to seperate files so now in temrinal do ' cat offsets_*.txt | awk '!seen[$1]++' > offsets.txt ' to merge to one offsets.txt file.
 * Then run mosaicfunc.py on the aligned white light aligned images. Visually inspect if any pointings (pointing number is under ‘OBJECT’ in header) have failed or need further corrections (generally those that need very large offsets fail.) Note these and go to the manual routine for any that need the correction
 ### Manual Routine 
 * Open the original white light image and the hst cutout in ds9 tiled next to each other with wcs locked.
 * Blink them to get a feel for what adjustment needs to be added in each direction 
   * (MUSE to HST : Right = +ve ra, Left = -ve ra, Up = -ve dec, DOwn = +ve dec)
-* Open manualds9adjusts.py and input your first estimate of adjustment, save as aligned1.
-* Open aligned1 and repeat above until happy with alignment. Then save as "aligned".
-* Note the adjustment made in the offsets.txt file and mark as ‘m’ for manual adjustment.
+* Open manualds9adjusts.py (on desktop) and input your first estimate of adjustment, save as aligned1.
+* Open aligned1 and repeat above until happy with alignment. Then save as "aligned" - this is the white light image for a quick check of the alignment in mosaic.
+* Note the adjustment made in manualoffsets.txt. when all complete copy to cuillin. Run join_manda.py to merge the manual and automatic offsets. Check updated_offsets looks correct th.
 * Copy (or scp from aligned_vis) into the ‘aligned folder from before and it will overwrite the files correcting the white light images.
 * Re-run mosaicfunc.py to test if the overall mosaic is improved. Once happy, move on.
 ## Align cubes in wavespace
