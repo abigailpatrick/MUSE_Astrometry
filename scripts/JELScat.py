@@ -6,6 +6,11 @@ from astropy.coordinates import SkyCoord
 import astropy.units as u
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
+import warnings
+from astropy.utils.exceptions import FITSFixedWarning
+
+warnings.simplefilter('ignore', FITSFixedWarning)
+warnings.filterwarnings('ignore', message=".*'partition' will ignore the 'mask'.*")
 
 
 
@@ -123,11 +128,11 @@ candidates_470_mosaic = get_candidates_in_mosaic("F470N", candidates_470, wcs, m
 # Combine tables
 all_candidates_mosaic = vstack([candidates_466_mosaic, candidates_470_mosaic])
 # limit to just ra dec and z columns 
-ha_candidates_mosaic = all_candidates_mosaic['ra', 'dec', 'z1_median']
+ha_candidates_mosaic = all_candidates_mosaic['ID','ra', 'dec', 'z1_median', 'band']
 
 # Save combined valid candidates as csv
 csv_path = "/home/apatrick/P1/outputfiles/jels_halpha_candidates_mosaic_all.csv"
-all_candidates_mosaic.write(csv_path, format='csv', overwrite=True)
+ha_candidates_mosaic.write(csv_path, format='csv', overwrite=True)
 print(f"Saved combined valid candidates to {csv_path}")
 """
 

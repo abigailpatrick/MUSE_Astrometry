@@ -10,12 +10,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from astropy.io import fits
 from astropy.visualization import ImageNormalize, SqrtStretch
+from scipy.ndimage import rotate
 
 # --------------------------------------------------------------------
 # PARAMETERS
 # --------------------------------------------------------------------
 file_path = '/cephfs/apatrick/musecosmos/scripts/aligned/masked_exposures'  # path to masked FITS files
-exposure_name = 'DATACUBE_FINAL_Autocal4010859a_2_ZAP_img_aligned_masked2.0p.fits'  # example
+exposure_name = 'DATACUBE_FINAL_Autocal3821223b_1_ZAP_img_aligned_masked0.0p.fits'  # example
 percentile_range = (0.5, 99.5)  # for display
 
 # --------------------------------------------------------------------
@@ -27,6 +28,7 @@ if __name__ == "__main__":
         raise FileNotFoundError(f"File not found: {exposure_path}")
 
     data = fits.getdata(exposure_path)
+    
 
     # Compute global percentiles for scaling
     valid = data[np.isfinite(data)]
