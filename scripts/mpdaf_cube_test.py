@@ -86,7 +86,7 @@ def make_source_mask(img):
    #amstools.writefits_nohdr('seg.fits',segment_map)
    return(segment_map)
 
-def wl(fits_path, out_fits, out_png, out_png_rgb, out_png_rgb3d=None):
+def wl(fits_path, out_fits, out_png, out_png_rgb, out_rgb_fits=None, out_png_rgb3d=None):
     with fits.open(fits_path, memmap=True) as hdul:
         data = hdul[0].data
         header = hdul[0].header
@@ -134,6 +134,13 @@ def wl(fits_path, out_fits, out_png, out_png_rgb, out_png_rgb3d=None):
     plt.savefig(out_png_rgb, dpi=300)
     plt.close()
     print(f"RGB composite image saved to {out_png_rgb}")
+
+    #  Save RGB image as FITS cube (3 planes: R, G, B)
+    if out_rgb_fits is not None:
+        rgb_fits_data = np.moveaxis(col, -1, 0).astype(np.float32)  # shape (3, ny, nx)
+        rgb_hdu = fits.PrimaryHDU(data=rgb_fits_data, header=header)
+        rgb_hdu.writeto(out_rgb_fits, overwrite=True)
+        print(f"RGB FITS saved to {out_rgb_fits}")
 
     # 3D IFU block (optional)
     if out_png_rgb3d is not None:
@@ -304,8 +311,9 @@ if __name__ == "__main__":
     out_fits = "/cephfs/apatrick/musecosmos/dataproducts/extractions/MEGA_CUBE_wl.fits"
     out_png  = "/cephfs/apatrick/musecosmos/dataproducts/extractions/MEGA_CUBE_wl_image.png"
     out_png_rgb = "/cephfs/apatrick/musecosmos/dataproducts/extractions/MEGA_CUBE_rgb.png"
+    out_rgb_fits = "/cephfs/apatrick/musecosmos/dataproducts/extractions/MEGA_CUBE_rgb.fits"
 
-    wl(cube_path, out_fits, out_png, out_png_rgb)
+    wl(cube_path, out_fits, out_png, out_png_rgb, out_rgb_fits=out_rgb_fits)
 
 
 

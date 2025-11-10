@@ -10,16 +10,16 @@ from mpdaf.MUSE import FSFModel
 from pathlib import Path
 from photutils.segmentation import SegmentationImage
 
+import os
 from astropy.io import fits
 
-path = "/cephfs/apatrick/musecosmos/dataproducts/extractions/source_7_subcube_2000_30.fits"
+
+path = "/cephfs/apatrick/musecosmos/dataproducts/extractions/source_7_subcube_30.0_2000.fits"
 with fits.open(path) as hdul:
     hdul.info()
     print("Data shape:", [hdu.data.shape if hdu.data is not None else None for hdu in hdul])
 
-from astropy.io import fits
-from mpdaf.obj import Cube
-import os
+
 
 def make_origin_compatible(input_fits, output_fits=None):
     """
@@ -65,23 +65,74 @@ def make_origin_compatible(input_fits, output_fits=None):
 
     return output_fits
 
-input_path = "/cephfs/apatrick/musecosmos/dataproducts/extractions/source_7_subcube_2000_30.fits"
+def add_fsf_keywords(
+    cube_path,
+    FSFMODE=2,
+    FSFLB1=5000,
+    FSFLB2=9000,
+    FSF00FNC=2,
+    FSF00F00=-0.120267451303792,
+    FSF00F01=0.6209395273959001,
+    FSF00BNC=1,
+    FSF00B00=2.8,
+    verbose=True
+):
+    """
+    Add or update FSF (PSF) keywords in a MUSE datacube FITS header.
+
+    Parameters
+    ----------
+    cube_path : str or Path
+        Path to the FITS cube to update.
+    FSFMODE, FSFLB1, FSFLB2, FSF00FNC, FSF00F00, FSF00F01, FSF00BNC, FSF00B00 : float or int
+        FSF model parameters (defaults correspond to UDF-10).
+    verbose : bool
+        If True, print confirmation of added keywords.
+    """
+    fsf_values = {
+        "FSFMODE": FSFMODE,
+        "FSFLB1": FSFLB1,
+        "FSFLB2": FSFLB2,
+        "FSF00FNC": FSF00FNC,
+        "FSF00F00": FSF00F00,
+        "FSF00F01": FSF00F01,
+        "FSF00BNC": FSF00BNC,
+        "FSF00B00": FSF00B00,
+    }
+
+    with fits.open(cube_path, mode="update") as hdul:
+        hdr = hdul[0].header
+        for key, val in fsf_values.items():
+            hdr[key] = val
+            if verbose:
+                print(f"Added/Updated {key} = {val}")
+        hdul.flush()
+
+    if verbose:
+        print(f"\nFSF keywords successfully written to: {cube_path}")
+
+input_path = "/cephfs/apatrick/musecosmos/dataproducts/extractions/source_7_subcube_30.0_2000.fits"
 output_path = "/cephfs/apatrick/musecosmos/dataproducts/extractions/source_7_subcube_origin.fits"
 
 make_origin_compatible(input_path, output_path)
 
+add_fsf_keywords(output_path)
 
-DATACUBE = Path("/cephfs/apatrick/musecosmos/dataproducts/extractions/source_7_subcube_2000_30.fits")
+DATACUBE = Path("/cephfs/apatrick/musecosmos/dataproducts/extractions/source_7_subcube_origin.fits")
+
+h = fits.getheader("/cephfs/apatrick/musecosmos/dataproducts/extractions/source_7_subcube_30.0_2000.fits")
+print(h)
+
 
 NAME = DATACUBE.stem
 
 print(NAME)
 
 Cube(output_path).info()
-#fsfmodel = FSFModel.read(output_path) # stuck because no fsf info in subcube
-#fsfmodel.to_header()
+fsfmodel = FSFModel.read(output_path) # stuck because no fsf info in subcube
+fsfmodel.to_header()
 
-orig = ORIGIN.init(output_path, name=NAME, loglevel='DEBUG', logcolor=True, fsfmodel=None)
+orig = ORIGIN.init(output_path, name=NAME, loglevel='DEBUG', logcolor=True)
 
 # step 1
 orig.set_loglevel('INFO')

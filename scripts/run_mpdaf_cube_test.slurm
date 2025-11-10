@@ -9,7 +9,7 @@
 #SBATCH --mem=400G
 
 # Load Python
-. /usr/local/anaconda/3.9/etc/profile.d/conda.sh
+. /usr/local/anaconda/3.13/etc/profile.d/conda.sh
 conda activate env39
 
 cd /cephfs/apatrick/musecosmos/scripts/

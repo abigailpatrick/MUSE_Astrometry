@@ -70,11 +70,11 @@ def parse_args():
                         help="Path to a CSV file containing RA, Dec, and redshift (z).")
     
     parser.add_argument("--spatial_width", type=float, 
-                        default=3.0, 
+                        default=30.0, 
                         help="Spatial width for extraction in arcsec.")
 
     parser.add_argument("--spectral_width", type=float, 
-                        default=400,
+                        default=2000,
                         help="Spectral width for subcube extraction in Angstroms (default is 600 Å).")
 
     parser.add_argument("--rest_wavelength", type=float,
@@ -89,7 +89,7 @@ def parse_args():
                         help="Radius for 1D spectrum aperture in arcsec (default is 1 arcsec).")
 
     parser.add_argument("--spectrum_width", type=float,
-                        default=400,
+                        default=2000,
                         help="Width around central wavelength for 1D spectrum in Angstroms (default is 600 Å).")
 
     parser.add_argument("--pixel_scale", type=float,
@@ -250,7 +250,7 @@ def create_nb_image(subcube, central_wavelength, width, pixel_scale, spectrum_ra
         handle.set_visible(False)
 
     # Save and close
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='black')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight') # , facecolor='black' for dark plot
     plt.close(fig)
     print(f"Saved pseudo-NB image to {output_path}")
 
@@ -309,7 +309,7 @@ def create_continuum_image(subcube, central_wavelength, width, pixel_scale,
 
     # Plot
     fig, ax = plt.subplots(figsize=(6, 5))
-    im = ax.imshow(smoothed_data, origin='lower', cmap='viridis',
+    im = ax.imshow(smoothed_data, origin='lower', cmap='magma',
                    extent=[x.max(), x.min(), y.min(), y.max()], vmin=vmin, vmax=vmax) # flipped ra
 
     # Colorbar
@@ -323,7 +323,7 @@ def create_continuum_image(subcube, central_wavelength, width, pixel_scale,
 
     # Red circle at center
     spectrum_diameter = 2 * spectrum_radius
-    circle_color = 'red'
+    circle_color = 'white'
     circle = Circle((0, 0), radius=spectrum_radius, edgecolor=circle_color,
                     facecolor='none', lw=2,
                     label=f'Spectrum Aperture = {spectrum_diameter:.1f}"')
@@ -581,7 +581,61 @@ def create_spectrum_with_inset(subcube, spectrum_radius, central_wavelength, spe
     # --- Save figure ---
     plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='black')
     plt.close(fig)
+    # Reset Matplotlib style for future plots
+    plt.rcParams.update(plt.rcParamsDefault)
     print(f"Saved combined spectrum+NB image to {output_path}")
+
+def plot_primer_rgb_cutout(primer_path, ra, dec, cutout_size, pixel_scale=0.03, output_path="primer_cutout.png"):
+    """
+    Create RGB PRIMER cutout centered on RA,Dec, axes in ΔRA/ΔDec (arcsec).
+    cutout_size : tuple
+        (nx, ny) in pixels, e.g., use JELS cutout size
+    pixel_scale : float
+        Arcsec per pixel (default 0.03")
+    """
+    # Load FITS cube and WCS
+    with fits.open(primer_path) as hdul:
+        rgb_data = hdul[0].data  # shape (3, ny, nx)
+        wcs = WCS(hdul[0].header).celestial  # only RA/Dec part
+
+    position = SkyCoord(ra, dec, unit="deg")
+
+    # Perform cutout per channel
+    cutouts = []
+    for channel in rgb_data:
+        cut = Cutout2D(channel, position=position, size=cutout_size, wcs=wcs)
+        cutouts.append(cut.data)
+
+    # Stack channels into RGB array
+    rgb_cutout = np.stack(cutouts, axis=0)
+
+    # Normalize & stretch
+    rgb_norm = np.zeros_like(rgb_cutout)
+    for i in range(3):
+        norm = simple_norm(rgb_cutout[i], 'asinh', percent=99.5)
+        rgb_norm[i] = (rgb_cutout[i] - norm.vmin) / (norm.vmax - norm.vmin)
+    rgb_norm = np.clip(rgb_norm, 0, 1)
+    rgb_image = np.moveaxis(rgb_norm, 0, -1)
+    rgb_image = np.nan_to_num(rgb_image, nan=0.0, posinf=1.0, neginf=0.0)
+
+    # Convert pixel grid to ΔRA/ΔDec in arcsec
+    ny, nx = cutout_size
+    x = (np.arange(nx) - nx / 2) * pixel_scale
+    y = (np.arange(ny) - ny / 2) * pixel_scale
+    extent = [x.max(), x.min(), y.min(), y.max()]  # flip x-axis for RA
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.imshow(rgb_image, origin='lower', extent=extent)
+    ax.set_xlabel('ΔRA [arcsec]')
+    ax.set_ylabel('ΔDec [arcsec]')
+    ax.set_title('PRIMER RGB Cutout')
+
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Saved PRIMER RGB cutout to {output_path}")
+
+    return rgb_cutout
 
 
 
@@ -895,7 +949,7 @@ def main():
             if subcube is not None:
                 subcube.write(subcube_path)
                 print(f"Saved subcube to {subcube_path}")
-
+        """ 
         if subcube is None:
             print(f"Skipping object {i+1}: out of cube bounds.")
             continue
@@ -986,6 +1040,17 @@ def main():
             output_path=f"{args.output}source_{i+1}_JELS.png"
         )
 
+        # --- PRIMER RGB cutout ---
+        primer_pixel_scale = 0.03  # arcsec/pixel (30mas)
+        cutoutsize_primer = (int(args.spatial_width / primer_pixel_scale),
+                        int(args.spatial_width / primer_pixel_scale))
+        primer_cutout = plot_primer_rgb_cutout(
+            primer_path="/cephfs/apatrick/musecosmos/dataproducts/extractions/MEGA_CUBE_rgb.fits",  # update to your PRIMER file
+            ra=ra,
+            dec=dec,
+            cutout_size=cutoutsize_primer,
+            output_path=f"{args.output}source_{i+1}_PRIMER.png"
+        )
 
     # --- Combine all default outputs into a single PDF ---
     save_combined_pdf(df, args.output, id, pdf_name=f"all_sources_combined_{args.spectral_width}.pdf")
@@ -999,7 +1064,7 @@ def main():
 
     for i in sources:
         row = df.iloc[i - 1]
-        z, id, band = row['z1_median'], row['ID'], row['band']
+        ra, dec, z , id, band = row['ra'], row['dec'], row['z1_median'], row['ID'], row['band']
         subcube_path = f"{args.output}source_{i}_subcube.fits"
 
         if not os.path.exists(subcube_path):
@@ -1074,7 +1139,7 @@ def main():
             smooth_sigma=1,
             vmin=vmin,
             vmax=vmax,
-            output_path=f"{args.output}source_{i+1}_spec_with_nb_manual.png"
+            output_path=f"{args.output}source_{i}_spec_with_nb_manual.png"
         )
 
         wl = subcube.wave.coord()
@@ -1085,18 +1150,32 @@ def main():
         jels_pixel_scale = 0.03  # arcsec/pixel (30mas)
         cutoutsize_jels = (int(args.spatial_width / jels_pixel_scale),
                         int(args.spatial_width / jels_pixel_scale))
+        
+        print(f"Creating JWST cutout for source {i}, RA={ra}, Dec={dec}")
 
         jels_cutout = JELS__cutout(
             f'/home/apatrick/P1/JELSDP/JELS_v1_{band}_30mas_i2d.fits',
             ra, dec, cutoutsize_jels, band,
             pixel_scale=jels_pixel_scale,
-            output_path=f"{args.output}source_{i+1}_JELS_manual.png"
+            output_path=f"{args.output}source_{i}_JELS_manual.png"
+        )
+        
+        # --- PRIMER RGB cutout (manual) ---
+        primer_pixel_scale = 0.03  # arcsec/pixel (30mas)
+        cutoutsize_primer = (int(args.spatial_width / primer_pixel_scale),
+                        int(args.spatial_width / primer_pixel_scale))
+        primer_cutout = plot_primer_rgb_cutout(
+            primer_path="/cephfs/apatrick/musecosmos/dataproducts/extractions/MEGA_CUBE_rgb.fits",  # update to your PRIMER file
+            ra=ra,
+            dec=dec,
+            cutout_size=cutoutsize_primer,
+            output_path=f"{args.output}source_{i}_PRIMER_manual.png"
         )
 
 
     # --- Combine manual adjusted outputs into a single PDF ---
     save_combined_pdf(df, args.output, id ,pdf_name=f"manual_adjustments_{args.spectral_width}.pdf", sources=sources, suffix="_manual")
-
+     """
 
 if __name__ == "__main__":
     main()
